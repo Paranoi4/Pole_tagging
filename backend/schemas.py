@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr,  ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -11,6 +11,7 @@ class RoleCreate(BaseModel):
     role_name: str
 
 class RoleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     role_id: int
     role_name: str
     updated_at: Optional[datetime] = None
@@ -42,6 +43,7 @@ class UserUpdate(BaseModel):
 
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     user_id: int
     first_name: str
     last_name: str
@@ -64,6 +66,7 @@ class UserRoleCreate(BaseModel):
 
 
 class UserRoleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     user_role_id: int
     user_id: int
     role_id: int

@@ -7,7 +7,7 @@ import models
 Base.metadata.create_all(bind=engine)
 
 # Import routers
-from router import users, roles, auth, user_roles
+from router import users, roles, auth, user_roles, me
 
 app = FastAPI(title="Poletagging API")
 
@@ -27,3 +27,4 @@ app.include_router(users.router)
 app.include_router(roles.router)
 app.include_router(auth.router)
 app.include_router(user_roles.router)  
+app.include_router(me.router)

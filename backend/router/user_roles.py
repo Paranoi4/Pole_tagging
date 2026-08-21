@@ -35,7 +35,8 @@ def assign_role_to_user(
     db.add(db_user_role)
     db.commit()
     db.refresh(db_user_role)
-    return db_user_role
+    
+    return schemas.UserRoleOut.model_validate(db_user_role)
 
 
 # ===== GET ALL USER ROLES =====
@@ -45,7 +46,8 @@ def list_user_roles(
     limit: int = 10,
     db: Session = Depends(get_db)
 ):
-    return db.query(models.UserRole).offset(skip).limit(limit).all()
+    user_roles = db.query(models.UserRole).offset(skip).limit(limit).all()
+    return [schemas.UserRoleOut.model_validate(ur) for ur in user_roles]
 
 
 # ===== GET USER ROLES BY USER ID =====
@@ -54,7 +56,8 @@ def get_user_roles_by_user(user_id: int, db: Session = Depends(get_db)):
     if not db.get(models.User, user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
-    return db.query(models.UserRole).filter(models.UserRole.user_id == user_id).all()
+    user_roles = db.query(models.UserRole).filter(models.UserRole.user_id == user_id).all()
+    return [schemas.UserRoleOut.model_validate(ur) for ur in user_roles]
 
 
 # ===== REMOVE ROLE FROM USER =====

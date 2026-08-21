@@ -16,7 +16,9 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
-# ===== CREATE USER =====
+# ============================================
+# CREATE USER
+# ============================================
 @router.post("", response_model=schemas.UserOut)
 def create_user(
     user: schemas.UserCreate,
@@ -39,34 +41,49 @@ def create_user(
         email=user.email,
         contact=user.contact,
         username=user.username,
-        password=hash_password(user.password)
+        password=hash_password(user.password),
+        auth_provider=user.auth_provider or "local",
+        google_id=user.google_id
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    return db_user
+    
+    # ✅ ONE LINE instead of 14!
+    return schemas.UserOut.model_validate(db_user)
 
 
-# ===== GET ALL USERS =====
+# ============================================
+# GET ALL USERS (PAGINATED)
+# ============================================
 @router.get("", response_model=List[schemas.UserOut])
 def list_users(
     skip: int = Query(0, description="Number of users to skip"),
     limit: int = Query(10, description="Number of users to return"),
     db: Session = Depends(get_db)
 ):
-    return db.query(models.User).offset(skip).limit(limit).all()
+    users = db.query(models.User).offset(skip).limit(limit).all()
+    
+    # ✅ Convert each user using model_validate
+    return [schemas.UserOut.model_validate(user) for user in users]
 
 
-# ===== GET USER BY ID =====
+# ============================================
+# GET USER BY ID
+# ============================================
 @router.get("/{user_id}", response_model=schemas.UserOut)
 def get_user(user_id: int, db: Session = Depends(get_db)):
     user = db.get(models.User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    
+    # ✅ ONE LINE instead of 14!
+    return schemas.UserOut.model_validate(user)
 
 
-# ===== UPDATE USER =====
+# ============================================
+# UPDATE USER
+# ============================================
 @router.put("/{user_id}", response_model=schemas.UserOut)
 def update_user(
     user_id: int,
@@ -85,10 +102,14 @@ def update_user(
     
     db.commit()
     db.refresh(user)
-    return user
+    
+    # ✅ ONE LINE instead of 14!
+    return schemas.UserOut.model_validate(user)
 
 
-# ===== DELETE USER =====
+# ============================================
+# DELETE USER
+# ============================================
 @router.delete("/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):
     user = db.get(models.User, user_id)
@@ -100,10 +121,14 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     return {"message": "User deleted"}
 
 
-# ===== GET USER BY USERNAME =====
+# ============================================
+# GET USER BY USERNAME
+# ============================================
 @router.get("/username/{username}", response_model=schemas.UserOut)
 def get_user_by_username(username: str, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    
+    # ✅ ONE LINE instead of 14!
+    return schemas.UserOut.model_validate(user)
