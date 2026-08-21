@@ -1,0 +1,80 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# ADD THESE - FLUTTER BUILD FOLDERS
+**/build/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Pods/
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+**/web/
+**/macos/build/
+**/windows/build/
+**/linux/build/
+
+# Generated code
+*.g.dart
+*.freezed.dart
+*.gr.dart
+
+# Firebase configs
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Keys and secrets
+**/keys/
+**/*.keystore
+**/*.jks
+**/*.p12
+**/.env
+**/.env.*
+**/*.pem
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Coverage reports
+coverage/
+lcov.info
+
+# Flutter firebase
+firebase.json
+.firebase/
