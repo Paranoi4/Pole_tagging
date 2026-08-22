@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:frontend/models/user.dart';
@@ -40,7 +43,55 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
+  Timer? _tokenExpiryTimer;
+
   AuthNotifier() : super(AuthState.initial());
+
+  static DateTime? parseTokenExpiry(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+
+      final payload = parts[1];
+      final normalized = payload.replaceAll('-', '+').replaceAll('_', '/');
+      final padded = normalized.padRight((normalized.length + 3) ~/ 4 * 4, '=');
+      final decoded = utf8.decode(base64Url.decode(padded));
+      final payloadMap = jsonDecode(decoded);
+
+      if (payloadMap is! Map<String, dynamic>) return null;
+      final exp = payloadMap['exp'];
+      if (exp is int) {
+        return DateTime.fromMillisecondsSinceEpoch(exp * 1000, isUtc: true);
+      }
+      if (exp is double) {
+        return DateTime.fromMillisecondsSinceEpoch(exp.round() * 1000,
+            isUtc: true);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _scheduleTokenExpiry(String? token) {
+    _tokenExpiryTimer?.cancel();
+
+    if (token == null || token.isEmpty) return;
+
+    final expiry = parseTokenExpiry(token);
+    if (expiry == null) return;
+
+    final remaining = expiry.difference(DateTime.now().toUtc());
+
+    if (remaining <= Duration.zero) {
+      Future.microtask(logout);
+      return;
+    }
+
+    _tokenExpiryTimer = Timer(remaining, () {
+      logout();
+    });
+  }
 
   Future<void> login(String username, String password) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
@@ -61,6 +112,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
         errorMessage: null,
       );
+
+      _scheduleTokenExpiry(token);
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
@@ -86,11 +139,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> loadUser() async {
+    state = state.copyWith(isLoading: true);
+
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
 
     if (token == null) {
-      state = state.copyWith(isAuthenticated: false);
+      state = state.copyWith(isLoading: false, isAuthenticated: false, user: null, token: null);
       return;
     }
 
@@ -102,6 +157,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isAuthenticated: true,
         isLoading: false,
       );
+      _scheduleTokenExpiry(token);
     } catch (e) {
       // Token is invalid or expired
       await logout();
@@ -109,6 +165,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    _tokenExpiryTimer?.cancel();
+    _tokenExpiryTimer = null;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
 

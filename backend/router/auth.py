@@ -6,7 +6,7 @@ from datetime import timedelta
 from database import get_db
 import models
 import schemas
-from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_MINUTES
+from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_SECONDS
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -41,7 +41,7 @@ def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is inactive")
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(seconds=ACCESS_TOKEN_EXPIRE_SECONDS)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
@@ -53,36 +53,36 @@ def login(
     }
 
 
-# ===== LOGIN WITH TOKEN =====
-@router.post("/token", response_model=TokenResponse)
-def login_for_access_token(
-    request: LoginRequest,
-    db: Session = Depends(get_db)
-):
-    user = db.query(models.User).filter(models.User.username == request.username).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+# # ===== LOGIN WITH TOKEN =====
+# @router.post("/token", response_model=TokenResponse)
+# def login_for_access_token(
+#     request: LoginRequest,
+#     db: Session = Depends(get_db)
+# ):
+#     user = db.query(models.User).filter(models.User.username == request.username).first()
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
     
-    if not verify_password(request.password, user.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+#     if not verify_password(request.password, user.password):
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
     
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="User account is inactive")
+#     if not user.is_active:
+#         raise HTTPException(status_code=403, detail="User account is inactive")
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
+#     access_token_expires = timedelta(seconds=ACCESS_TOKEN_EXPIRE_SECONDS)
+#     access_token = create_access_token(
+#         data={"sub": user.username}, expires_delta=access_token_expires
+#     )
     
-    return {"access_token": access_token, "token_type": "bearer"}
+#     return {"access_token": access_token, "token_type": "bearer"}
 
 
 # ===== REGISTER =====
