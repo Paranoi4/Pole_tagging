@@ -6,8 +6,13 @@ from passlib.context import CryptContext
 from database import get_db
 import models
 import schemas
+from utils.auth import get_current_user
 
-router = APIRouter(prefix="/users", tags=["Users"])
+router = APIRouter(
+    prefix="/users",
+    tags=["Users"],
+    dependencies=[Depends(get_current_user)],
+)
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

@@ -38,6 +38,7 @@ dependencies:
   http: ^1.0.0
   flutter_riverpod: ^2.0.0
   image_picker: ^1.0.0
+  shared_preferences: ^2.0.0  # For storing JWT token
 dev_dependencies:
   flutter_test:
     sdk: flutter

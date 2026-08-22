@@ -5,8 +5,13 @@ from typing import List
 from database import get_db
 import models
 import schemas
+from utils.auth import get_current_user
 
-router = APIRouter(prefix="/user-roles", tags=["User Roles"])
+router = APIRouter(
+    prefix="/user-roles",
+    tags=["User Roles"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # ===== ASSIGN ROLE TO USER =====

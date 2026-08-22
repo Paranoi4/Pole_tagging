@@ -21,8 +21,12 @@ class TokenResponse(BaseModel):
     token_type: str
 
 
+class LoginResponse(TokenResponse):
+    user: schemas.UserOut
+
+
 # ===== LOGIN =====
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 def login(
     request: LoginRequest,
     db: Session = Depends(get_db)
@@ -37,9 +41,15 @@ def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is inactive")
     
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+
     return {
-        "message": "Login successful",
-        "user": schemas.UserOut.model_validate(user)
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user,
     }
 
 

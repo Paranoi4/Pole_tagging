@@ -36,6 +36,10 @@ class User(Base):
     # Relationship
     user_roles = relationship("UserRole", back_populates="user")
 
+    @property
+    def roles(self):
+        return [user_role.role for user_role in self.user_roles if user_role.role]
+
 
 class UserRole(Base):
     __tablename__ = "user_roles"
