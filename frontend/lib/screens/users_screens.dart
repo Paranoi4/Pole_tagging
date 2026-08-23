@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/services/api_services.dart';
-import 'package:frontend/providers/auth_providers.dart';
+import 'package:frontend/providers/api_providers.dart';
 
 class UsersScreen extends ConsumerStatefulWidget {
   const UsersScreen({super.key});
@@ -29,10 +28,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     });
 
     try {
-      final token = ref.read(authProvider).token;
-      if (token == null) throw Exception('Not authenticated');
-
-      users = await ApiService.getUsers(token);
+      users = await ref.read(apiProvider).getAllUsers();
     } catch (e) {
       setState(() {
         error = e.toString();

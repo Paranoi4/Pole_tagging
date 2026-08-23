@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/providers/api_providers.dart';
 import 'package:frontend/services/api_services.dart';
 
 class AuthState {
@@ -43,9 +44,10 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
+  final ApiService _api;
   Timer? _tokenExpiryTimer;
 
-  AuthNotifier() : super(AuthState.initial());
+  AuthNotifier(this._api) : super(AuthState.initial());
 
   static DateTime? parseTokenExpiry(String token) {
     try {
@@ -97,9 +99,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, errorMessage: null);
 
     try {
-      final loginResponse = await ApiService.login(username, password);
+      final loginResponse = await _api.login(username, password);
       final token = loginResponse.accessToken;
       final user = loginResponse.user;
+
+      // Hand the token to the service before anything else can make a call.
+      _api.setToken(token);
 
       // Save token to SharedPreferences
       final prefs = await SharedPreferences.getInstance();
@@ -126,7 +131,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, errorMessage: null);
 
     try {
-      await ApiService.register(user, password);
+      await _api.register(user, password);
 
       // After registration, login automatically
       await login(user.username, password);
@@ -145,13 +150,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = prefs.getString('token');
 
     if (token == null) {
+      _api.setToken(null);
       state = state.copyWith(
           isLoading: false, isAuthenticated: false, user: null, token: null);
       return;
     }
 
     try {
-      final user = await ApiService.getCurrentUser(token);
+      // Restore the saved token onto the service before the call that uses it.
+      _api.setToken(token);
+      final user = await _api.getCurrentUser();
       state = state.copyWith(
         user: user,
         token: token,
@@ -169,6 +177,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _tokenExpiryTimer?.cancel();
     _tokenExpiryTimer = null;
 
+    _api.setToken(null);
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
 
@@ -182,5 +192,5 @@ class AuthNotifier extends StateNotifier<AuthState> {
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier();
+  return AuthNotifier(ref.watch(apiProvider));
 });

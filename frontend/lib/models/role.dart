@@ -1,3 +1,5 @@
+import 'package:frontend/helpers/parsing.dart';
+
 class Role {
   final int roleId;
   final String roleName;
@@ -13,9 +15,7 @@ class Role {
     return Role(
       roleId: json['role_id'],
       roleName: json['role_name'] ?? '',
-      updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'])
-          : null,
+      updatedAt: parseServerDate(json['updated_at']),
     );
   }
 

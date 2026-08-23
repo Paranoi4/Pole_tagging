@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend/models/role.dart';
-import 'package:frontend/services/api_services.dart';
-import 'package:frontend/providers/auth_providers.dart';
+import 'package:frontend/providers/api_providers.dart';
 
 class RolesScreen extends ConsumerStatefulWidget {
   const RolesScreen({super.key});
@@ -29,10 +28,7 @@ class _RolesScreenState extends ConsumerState<RolesScreen> {
     });
 
     try {
-      final token = ref.read(authProvider).token;
-      if (token == null) throw Exception('Not authenticated');
-
-      roles = await ApiService.getRoles(token);
+      roles = await ref.read(apiProvider).getAllRoles();
     } catch (e) {
       setState(() {
         error = e.toString();

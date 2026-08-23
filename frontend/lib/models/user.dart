@@ -1,4 +1,5 @@
-import 'role.dart'; // ← ADD THIS LINE
+import 'package:frontend/helpers/parsing.dart';
+import 'role.dart';
 
 class User {
   final int userId;
@@ -43,12 +44,8 @@ class User {
       username: json['username'] ?? '',
       isActive: json['is_active'] ?? true,
       authProvider: json['auth_provider'],
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'])
-          : null,
-      updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'])
-          : null,
+      createdAt: parseServerDate(json['created_at']),
+      updatedAt: parseServerDate(json['updated_at']),
       roles: json['roles'] != null
           ? (json['roles'] as List).map((r) => Role.fromJson(r)).toList()
           : [],
