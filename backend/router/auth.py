@@ -1,11 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import timedelta
+from urllib.parse import urlencode
+import requests
+
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from database import get_db
 import models
 import schemas
+from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
 from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_SECONDS
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -51,6 +58,97 @@ def login(
         "token_type": "bearer",
         "user": user,
     }
+
+
+@router.get("/google/login")
+def google_login():
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="Google login is not configured. Add GOOGLE_CLIENT_ID to backend/.env",
+        )
+
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    google_auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+    return RedirectResponse(google_auth_url)
+
+
+@router.get("/google/callback")
+def google_callback(code: str, db: Session = Depends(get_db)):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth credentials are missing. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+        )
+
+    token_response = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        },
+        timeout=20,
+    )
+
+    if token_response.status_code != 200:
+        raise HTTPException(status_code=400, detail="Google token exchange failed")
+
+    token_data = token_response.json()
+    id_token_value = token_data.get("id_token")
+    if not id_token_value:
+        raise HTTPException(status_code=400, detail="Google did not return an ID token")
+
+    try:
+        google_user = id_token.verify_oauth2_token(
+            id_token_value,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid Google token: {exc}") from exc
+
+    email = google_user.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Google account email is required")
+
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        user = models.User(
+            first_name=(google_user.get("given_name") or "Google").strip() or "Google",
+            last_name=(google_user.get("family_name") or "User").strip() or "User",
+            email=email,
+            username=email.split("@")[0],
+            password=get_password_hash("google-oauth-user"),
+            auth_provider="google",
+            google_id=google_user.get("sub"),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
+
+    access_token_expires = timedelta(seconds=ACCESS_TOKEN_EXPIRE_SECONDS)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+
+    redirect_url = (
+        "http://localhost:3000/login?google_auth=true&token="
+        f"{access_token}&username={user.username}"
+    )
+    return RedirectResponse(redirect_url)
 
 
 # # ===== LOGIN WITH TOKEN =====

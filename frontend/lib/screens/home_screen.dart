@@ -39,9 +39,15 @@ class HomeScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              ref.read(authProvider.notifier).logout();
-              Navigator.pushReplacementNamed(context, '/login');
+            onPressed: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  '/login',
+                  (route) => false,
+                );
+              }
             },
           ),
         ],
@@ -122,10 +128,16 @@ class HomeScreen extends ConsumerWidget {
                 'Logout',
                 style: TextStyle(color: Colors.red),
               ),
-              onTap: () {
-                ref.read(authProvider.notifier).logout();
+              onTap: () async {
                 Navigator.pop(context);
-                Navigator.pushReplacementNamed(context, '/login');
+                await ref.read(authProvider.notifier).logout();
+                if (context.mounted) {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/login',
+                    (route) => false,
+                  );
+                }
               },
             ),
           ],

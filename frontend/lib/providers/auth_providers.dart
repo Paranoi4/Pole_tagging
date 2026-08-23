@@ -145,7 +145,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = prefs.getString('token');
 
     if (token == null) {
-      state = state.copyWith(isLoading: false, isAuthenticated: false, user: null, token: null);
+      state = state.copyWith(
+          isLoading: false, isAuthenticated: false, user: null, token: null);
       return;
     }
 
@@ -175,6 +176,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       user: null,
       token: null,
       isAuthenticated: false,
+      isLoading: false,
     );
   }
 }

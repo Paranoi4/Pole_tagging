@@ -1,6 +1,11 @@
+import 'dart:html' as html;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend/providers/auth_providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -14,6 +19,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final uri = Uri.base;
+      final token = uri.queryParameters['token'];
+      final isGoogleAuth = uri.queryParameters['google_auth'] == 'true';
+
+      if (isGoogleAuth && token != null && token.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', token);
+        await ref.read(authProvider.notifier).loadUser();
+        if (context.mounted) {
+          html.window.history.replaceState(null, '', '/login');
+          Navigator.pushReplacementNamed(context, '/home');
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -140,6 +165,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             'Login',
                             style: TextStyle(fontSize: 16),
                           ),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final url = 'http://localhost:8000/auth/google/login';
+
+                      if (kIsWeb) {
+                        html.window.location.href = url;
+                        return;
+                      }
+
+                      final uri = Uri.parse(url);
+                      final launched = await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+
+                      if (!launched && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                'Could not open Google login. Please try again.'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.g_mobiledata_rounded),
+                    label: const Text('Continue with Google'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextButton(
