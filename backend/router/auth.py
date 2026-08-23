@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 from datetime import timedelta
 from urllib.parse import urlencode
 import requests
@@ -9,39 +8,33 @@ import requests
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
-from database import get_db
-import models
-import schemas
-from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+from config.database import get_db
+import models.models as models
+import models.schemas as schemas
+from config.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
 from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_SECONDS
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class LoginResponse(TokenResponse):
-    user: schemas.UserOut
-
-
 # ===== LOGIN =====
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login", response_model=schemas.LoginResponse)
 def login(
-    request: LoginRequest,
+    request: schemas.LoginRequest,
     db: Session = Depends(get_db)
 ):
     user = db.query(models.User).filter(models.User.username == request.username).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    
+
+    # Google accounts hold a placeholder password hash, so they must never be
+    # allowed through the password login path.
+    if (user.auth_provider or "local") != "local":
+        raise HTTPException(
+            status_code=400,
+            detail="This account uses Google sign-in. Please continue with Google.",
+        )
+
     if not verify_password(request.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
@@ -150,39 +143,6 @@ def google_callback(code: str, db: Session = Depends(get_db)):
     )
     return RedirectResponse(redirect_url)
 
-
-# # ===== LOGIN WITH TOKEN =====
-# @router.post("/token", response_model=TokenResponse)
-# def login_for_access_token(
-#     request: LoginRequest,
-#     db: Session = Depends(get_db)
-# ):
-#     user = db.query(models.User).filter(models.User.username == request.username).first()
-#     if not user:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Incorrect username or password",
-#             headers={"WWW-Authenticate": "Bearer"},
-#         )
-    
-#     if not verify_password(request.password, user.password):
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Incorrect username or password",
-#             headers={"WWW-Authenticate": "Bearer"},
-#         )
-    
-#     if not user.is_active:
-#         raise HTTPException(status_code=403, detail="User account is inactive")
-    
-#     access_token_expires = timedelta(seconds=ACCESS_TOKEN_EXPIRE_SECONDS)
-#     access_token = create_access_token(
-#         data={"sub": user.username}, expires_delta=access_token_expires
-#     )
-    
-#     return {"access_token": access_token, "token_type": "bearer"}
-
-
 # ===== REGISTER =====
 @router.post("/register", response_model=schemas.UserOut)
 def register(
@@ -204,8 +164,7 @@ def register(
         contact=user.contact,
         username=user.username,
         password=get_password_hash(user.password),
-        auth_provider=user.auth_provider or "local",
-        google_id=user.google_id
+        auth_provider="local",
     )
     db.add(db_user)
     db.commit()

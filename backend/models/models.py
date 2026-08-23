@@ -1,7 +1,7 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from database import Base
+from config.database import Base
 
 
 class Role(Base):
@@ -12,7 +12,12 @@ class Role(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship
-    user_roles = relationship("UserRole", back_populates="role")
+    user_roles = relationship(
+        "UserRole",
+        back_populates="role",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class User(Base):
@@ -34,7 +39,12 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship
-    user_roles = relationship("UserRole", back_populates="user")
+    user_roles = relationship(
+        "UserRole",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     @property
     def roles(self):

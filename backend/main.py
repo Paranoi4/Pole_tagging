@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine, Base
-import models
+from config.database import engine, Base
+import models.models as models
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -23,8 +23,8 @@ def root():
     return {"message": "Poletagging API is running"}
 
 # Include routers
+app.include_router(auth.router)  
+app.include_router(me.router)
 app.include_router(users.router)
 app.include_router(roles.router)
-app.include_router(auth.router)
-app.include_router(user_roles.router)  
-app.include_router(me.router)
+app.include_router(user_roles.router)

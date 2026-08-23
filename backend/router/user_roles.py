@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
-from database import get_db
-import models
-import schemas
+from config.database import get_db
+import models.models as models
+import models.schemas as schemas
 from utils.auth import get_current_user
 
 router = APIRouter(
@@ -44,37 +43,8 @@ def assign_role_to_user(
     return schemas.UserRoleOut.model_validate(db_user_role)
 
 
-# ===== GET ALL USER ROLES =====
-@router.get("", response_model=List[schemas.UserRoleOut])
-def list_user_roles(
-    skip: int = 0,
-    limit: int = 10,
-    db: Session = Depends(get_db)
-):
-    user_roles = db.query(models.UserRole).offset(skip).limit(limit).all()
-    return [schemas.UserRoleOut.model_validate(ur) for ur in user_roles]
-
-
-# ===== GET USER ROLES BY USER ID =====
-@router.get("/user/{user_id}", response_model=List[schemas.UserRoleOut])
-def get_user_roles_by_user(user_id: int, db: Session = Depends(get_db)):
-    if not db.get(models.User, user_id):
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    user_roles = db.query(models.UserRole).filter(models.UserRole.user_id == user_id).all()
-    return [schemas.UserRoleOut.model_validate(ur) for ur in user_roles]
-
-
-# ===== REMOVE ROLE FROM USER =====
-@router.delete("/{user_role_id}")
-def remove_role_from_user(user_role_id: int, db: Session = Depends(get_db)):
-    user_role = db.get(models.UserRole, user_role_id)
-    if not user_role:
-        raise HTTPException(status_code=404, detail="User role assignment not found")
-    
-    db.delete(user_role)
-    db.commit()
-    return {"message": "Role removed from user"}
+# A user's roles are already returned by GET /users/{id} and by the login
+# response, so this router only covers assigning and removing.
 
 
 # ===== REMOVE ROLE FROM USER BY USER AND ROLE ID =====

@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from passlib.context import CryptContext
 
-from database import get_db
-import models
-import schemas
-from utils.auth import get_current_user
+from config.database import get_db
+import models.models as models
+import models.schemas as schemas
+from utils.auth import get_current_user, get_password_hash
 
 router = APIRouter(
     prefix="/users",
@@ -14,19 +13,13 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
 
 # ============================================
 # CREATE USER
 # ============================================
 @router.post("", response_model=schemas.UserOut)
 def create_user(
-    user: schemas.UserCreate,
+    user: schemas.UserCreateAdmin,
     db: Session = Depends(get_db)
 ):
     # Check if username exists
@@ -37,6 +30,14 @@ def create_user(
     if db.query(models.User).filter(models.User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
     
+    # Reject unknown roles before creating anything, so we never leave a user
+    # behind after a failed assignment.
+    role_ids = list(dict.fromkeys(user.role_ids))
+    if role_ids:
+        found = db.query(models.Role).filter(models.Role.role_id.in_(role_ids)).count()
+        if found != len(role_ids):
+            raise HTTPException(status_code=404, detail="One or more roles not found")
+
     # Create user with hashed password
     db_user = models.User(
         first_name=user.first_name,
@@ -46,11 +47,16 @@ def create_user(
         email=user.email,
         contact=user.contact,
         username=user.username,
-        password=hash_password(user.password),
-        auth_provider=user.auth_provider or "local",
-        google_id=user.google_id
+        password=get_password_hash(user.password),
+        auth_provider="local",
     )
     db.add(db_user)
+    db.flush()  # assigns user_id without committing yet
+
+    for role_id in role_ids:
+        db.add(models.UserRole(user_id=db_user.user_id, role_id=role_id))
+
+    # Single commit, so the user and their roles save together or not at all.
     db.commit()
     db.refresh(db_user)
     
@@ -63,8 +69,8 @@ def create_user(
 # ============================================
 @router.get("", response_model=List[schemas.UserOut])
 def list_users(
-    skip: int = Query(0, description="Number of users to skip"),
-    limit: int = Query(10, description="Number of users to return"),
+    skip: int = Query(0, ge=0, description="Number of users to skip"),
+    limit: int = Query(10, ge=1, le=100, description="Number of users to return (max 100)"),
     db: Session = Depends(get_db)
 ):
     users = db.query(models.User).offset(skip).limit(limit).all()
@@ -99,16 +105,25 @@ def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    for field, value in patch.model_dump(exclude_unset=True).items():
-        if field == "password" and value:
-            setattr(user, field, hash_password(value))
-        elif value is not None:
+    data = patch.model_dump(exclude_unset=True)
+
+    # Same uniqueness checks create_user does, so a clash returns 400 rather
+    # than letting the database raise and surface as a 500.
+    if data.get("username") and data["username"] != user.username:
+        if db.query(models.User).filter(models.User.username == data["username"]).first():
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+    if data.get("email") and data["email"] != user.email:
+        if db.query(models.User).filter(models.User.email == data["email"]).first():
+            raise HTTPException(status_code=400, detail="Email already exists")
+
+    for field, value in data.items():
+        if value is not None:
             setattr(user, field, value)
-    
+
     db.commit()
     db.refresh(user)
     
-    # ✅ ONE LINE instead of 14!
     return schemas.UserOut.model_validate(user)
 
 
