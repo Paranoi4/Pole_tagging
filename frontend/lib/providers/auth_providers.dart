@@ -22,16 +22,24 @@ class AuthState {
     this.errorMessage,
   });
 
+  /// Copies the state, changing only what is passed.
+  ///
+  /// `user` and `token` are already nullable, so passing null cannot mean
+  /// "clear it" - `null ?? this.user` keeps the old value. Logging out has to
+  /// say so explicitly with [clearUser] / [clearToken], otherwise the previous
+  /// user and their token stay in memory behind a logged-out screen.
   AuthState copyWith({
     User? user,
     String? token,
     bool? isLoading,
     bool? isAuthenticated,
     String? errorMessage,
+    bool clearUser = false,
+    bool clearToken = false,
   }) {
     return AuthState(
-      user: user ?? this.user,
-      token: token ?? this.token,
+      user: clearUser ? null : (user ?? this.user),
+      token: clearToken ? null : (token ?? this.token),
       isLoading: isLoading ?? this.isLoading,
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       errorMessage: errorMessage,
@@ -152,7 +160,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (token == null) {
       _api.setToken(null);
       state = state.copyWith(
-          isLoading: false, isAuthenticated: false, user: null, token: null);
+        isLoading: false,
+        isAuthenticated: false,
+        clearUser: true,
+        clearToken: true,
+      );
       return;
     }
 
@@ -183,8 +195,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await prefs.remove('token');
 
     state = state.copyWith(
-      user: null,
-      token: null,
+      clearUser: true,
+      clearToken: true,
       isAuthenticated: false,
       isLoading: false,
     );
