@@ -185,6 +185,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Re-fetches /me and updates only the user in state, keeping the existing
+  /// token and isAuthenticated as-is. Used by pull-to-refresh (e.g. on
+  /// NoRolesScreen) so a role an admin just assigned shows up without
+  /// forcing a logout/login.
+  Future<void> refreshUser() async {
+    try {
+      final user = await _api.getCurrentUser();
+      state = state.copyWith(user: user);
+    } catch (e) {
+      // A 401 here means the token died between requests - same handling
+      // as loadUser()'s failure path.
+      await logout();
+    }
+  }
+
   Future<void> logout() async {
     _tokenExpiryTimer?.cancel();
     _tokenExpiryTimer = null;

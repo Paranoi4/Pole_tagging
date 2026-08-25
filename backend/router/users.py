@@ -5,7 +5,7 @@ from typing import List, Optional
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
-from utils.auth import get_current_user, get_password_hash
+from utils.auth import get_current_user, get_password_hash, require_role
 
 router = APIRouter(
     prefix="/users",
@@ -17,7 +17,9 @@ router = APIRouter(
 # ============================================
 # CREATE USER
 # ============================================
-@router.post("", response_model=schemas.UserOut)
+# Admin-only: this endpoint can assign roles at creation time, so it carries
+# the same privilege-escalation risk as /user-roles.
+@router.post("", response_model=schemas.UserOut, dependencies=[Depends(require_role("Admin"))])
 def create_user(
     user: schemas.UserCreateAdmin,
     db: Session = Depends(get_db)
@@ -67,7 +69,10 @@ def create_user(
 # ============================================
 # GET ALL USERS (PAGINATED)
 # ============================================
-@router.get("", response_model=List[schemas.UserOut])
+# Admin-only: this returns every user's email and contact info, not just
+# the caller's own — not something a roleless or non-Admin account should
+# be able to pull just by being logged in.
+@router.get("", response_model=List[schemas.UserOut], dependencies=[Depends(require_role("Admin"))])
 def list_users(
     skip: int = Query(0, ge=0, description="Number of users to skip"),
     limit: int = Query(10, ge=1, le=100, description="Number of users to return (max 100)"),
@@ -130,7 +135,7 @@ def update_user(
 # ============================================
 # DELETE USER
 # ============================================
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", dependencies=[Depends(require_role("Admin"))])
 def delete_user(user_id: int, db: Session = Depends(get_db)):
     user = db.get(models.User, user_id)
     if not user:

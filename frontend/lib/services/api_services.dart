@@ -318,4 +318,39 @@ class ApiService {
       );
     }
   }
+
+  // ===== USER ROLES =====
+  // Both endpoints are Admin-only on the backend (require_role("Admin")).
+  // A non-Admin calling these gets a 403, surfaced as an ApiException.
+
+  Future<void> assignRoleToUser(int userId, int roleId) async {
+    final response = await _send(() => http.post(
+          Uri.parse('$baseUrl/user-roles'),
+          headers: _authJsonHeaders,
+          body: jsonEncode({'user_id': userId, 'role_id': roleId}),
+        ));
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to assign role: ${response.statusCode}',
+      );
+    }
+  }
+
+  Future<void> removeRoleFromUser(int userId, int roleId) async {
+    final response = await _send(() => http.delete(
+          Uri.parse('$baseUrl/user-roles/user/$userId/role/$roleId'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode != 200) {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to remove role: ${response.statusCode}',
+      );
+    }
+  }
 }

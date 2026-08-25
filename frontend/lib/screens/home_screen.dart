@@ -6,6 +6,7 @@ import 'package:frontend/screens/users_screen.dart';
 import 'package:frontend/screens/roles_screen.dart';
 import 'package:frontend/screens/printerman_screen.dart';
 import 'package:frontend/screens/dispatcher_screen.dart';
+import 'package:frontend/screens/no_roles_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -21,28 +22,43 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
+    // A user can hold zero, one, or both of Printerman/Dispatcher (plus
+    // Admin). Zero roles gets its own screen instead of an empty dashboard.
+    final roleNames = user.roles.map((r) => r.roleName).toSet();
+    final isAdmin = roleNames.contains('Admin');
+    final isPrinterman = roleNames.contains('Printerman');
+    final isDispatcher = roleNames.contains('Dispatcher');
+
+    if (roleNames.isEmpty) {
+      return const NoRolesScreen();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Poletagging'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PrinterManScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.local_shipping),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DispatcherScreen()),
-              );
-            },
-          ),
+          if (isPrinterman)
+            IconButton(
+              icon: const Icon(Icons.print),
+              tooltip: 'Printerman',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PrinterManScreen()),
+                );
+              },
+            ),
+          if (isDispatcher)
+            IconButton(
+              icon: const Icon(Icons.local_shipping),
+              tooltip: 'Dispatcher',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DispatcherScreen()),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -94,37 +110,69 @@ class HomeScreen extends ConsumerWidget {
                 Navigator.pop(context);
               },
             ),
+            // Admin-only: manage users (assign/remove roles) and view roles.
+            // Backend already rejects non-Admins on the underlying calls;
+            // hiding the entries here just keeps the nav honest.
+            if (isAdmin) ...[
+              ListTile(
+                leading: const Icon(Icons.people),
+                title: const Text('Users'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const UsersScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.admin_panel_settings),
+                title: const Text('Roles'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const RolesScreen()),
+                  );
+                },
+              ),
+            ],
+            if (isPrinterman)
+              ListTile(
+                leading: const Icon(Icons.print),
+                title: const Text('Printerman'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PrinterManScreen()),
+                  );
+                },
+              ),
+            if (isDispatcher)
+              ListTile(
+                leading: const Icon(Icons.local_shipping),
+                title: const Text('Dispatcher'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DispatcherScreen()),
+                  );
+                },
+              ),
             ListTile(
-              leading: const Icon(Icons.people),
-              title: const Text('Users'),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const UsersScreen()),
-                );
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.admin_panel_settings),
-              title: const Text('Roles'),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const RolesScreen()),
-                );
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
+              // NOTE: this previously opened PrinterManScreen instead of the
+              // actual ProfileScreen (which was imported but unused) — fixed
+              // here since it looked like a leftover placeholder.
               leading: const Icon(Icons.person),
               title: const Text('Profile'),
               onTap: () {
+                Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const PrinterManScreen()),
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
                 );
-                Navigator.pop(context);
               },
             ),
             const Divider(),

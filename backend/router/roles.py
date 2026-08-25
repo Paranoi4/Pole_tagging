@@ -5,17 +5,22 @@ from typing import List
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
-from utils.auth import get_current_user
+from utils.auth import get_current_user, require_role
 
 router = APIRouter(
     prefix="/roles",
     tags=["Roles"],
+    # Base auth only here; Admin check is per-route below so GET stays open
+    # to any logged-in user while create/update/delete are Admin-only.
     dependencies=[Depends(get_current_user)],
 )
 
 
 # ===== CREATE ROLE =====
-@router.post("", response_model=schemas.RoleOut)
+# Admin-only. Roles are fixed (Admin/Printerman/Dispatcher) with no
+# "create role" UI, so this being open to any user was pure risk with no
+# legitimate use from the frontend.
+@router.post("", response_model=schemas.RoleOut, dependencies=[Depends(require_role("Admin"))])
 def create_role(role: schemas.RoleCreate, db: Session = Depends(get_db)):
     if db.query(models.Role).filter(models.Role.role_name == role.role_name).first():
         raise HTTPException(status_code=400, detail="Role already exists")
@@ -28,7 +33,7 @@ def create_role(role: schemas.RoleCreate, db: Session = Depends(get_db)):
 
 
 # ===== GET ALL ROLES =====
-@router.get("", response_model=List[schemas.RoleOut])
+@router.get("", response_model=List[schemas.RoleOut], dependencies=[Depends(require_role("Admin"))])
 def list_roles(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
@@ -38,7 +43,7 @@ def list_roles(
 
 
 # ===== GET ROLE BY ID =====
-@router.get("/{role_id}", response_model=schemas.RoleOut)
+@router.get("/{role_id}", response_model=schemas.RoleOut, dependencies=[Depends(require_role("Admin"))])
 def get_role(role_id: int, db: Session = Depends(get_db)):
     role = db.get(models.Role, role_id)
     if not role:
@@ -47,7 +52,7 @@ def get_role(role_id: int, db: Session = Depends(get_db)):
 
 
 # ===== UPDATE ROLE =====
-@router.put("/{role_id}", response_model=schemas.RoleOut)
+@router.put("/{role_id}", response_model=schemas.RoleOut, dependencies=[Depends(require_role("Admin"))])
 def update_role(
     role_id: int,
     patch: schemas.RoleUpdate,
@@ -75,7 +80,7 @@ def update_role(
 
 
 # ===== DELETE ROLE =====
-@router.delete("/{role_id}")
+@router.delete("/{role_id}", dependencies=[Depends(require_role("Admin"))])
 def delete_role(role_id: int, db: Session = Depends(get_db)):
     role = db.get(models.Role, role_id)
     if not role:

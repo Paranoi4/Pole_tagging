@@ -61,3 +61,24 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
 
     return user
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory: restricts a route to users holding at least one of
+    the given role names. A user can hold multiple roles (e.g. Printerman AND
+    Dispatcher) — this only requires overlap, not an exact match.
+
+    Usage:
+        @router.post("", dependencies=[Depends(require_role("Admin"))])
+    or, if you need the resolved user in the route body:
+        def my_route(current_user = Depends(require_role("Admin"))):
+    """
+    def role_checker(current_user: models.User = Depends(get_current_user)):
+        user_role_names = {r.role_name for r in current_user.roles}
+        if user_role_names.isdisjoint(allowed_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires one of these roles: {', '.join(allowed_roles)}",
+            )
+        return current_user
+    return role_checker

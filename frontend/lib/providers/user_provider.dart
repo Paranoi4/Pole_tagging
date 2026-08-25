@@ -102,6 +102,40 @@ class UserNotifier extends StateNotifier<UserState> {
     }
   }
 
+  /// Reconciles [userId]'s roles to exactly [desiredRoleIds] — assigns any
+  /// missing ones, removes any it currently has that aren't in the set.
+  /// Used by the role-assign bottom sheet, which lets an Admin check/uncheck
+  /// several roles and save once rather than one call per toggle.
+  Future<void> updateUserRoles(int userId, Set<int> desiredRoleIds) async {
+    final user = state.users.firstWhere((u) => u.userId == userId);
+    final currentRoleIds = user.roles.map((r) => r.roleId).toSet();
+
+    final toAdd = desiredRoleIds.difference(currentRoleIds);
+    final toRemove = currentRoleIds.difference(desiredRoleIds);
+
+    state = state.copyWith(isLoading: true, clearError: true);
+
+    try {
+      for (final roleId in toAdd) {
+        await _api.assignRoleToUser(userId, roleId);
+      }
+      for (final roleId in toRemove) {
+        await _api.removeRoleFromUser(userId, roleId);
+      }
+
+      // Re-fetch this one user rather than the whole list — cheaper, and
+      // guarantees the roles shown match what the backend actually saved.
+      final updatedUser = await _api.getUserById(userId);
+      final updatedUsers =
+          state.users.map((u) => u.userId == userId ? updatedUser : u).toList();
+
+      state = state.copyWith(users: updatedUsers, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      rethrow;
+    }
+  }
+
   void clearError() {
     state = state.copyWith(clearError: true);
   }
