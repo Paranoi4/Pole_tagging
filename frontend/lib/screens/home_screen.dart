@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend/providers/auth_providers.dart';
 import 'package:frontend/screens/profile_screen.dart';
-import 'package:frontend/screens/users_screens.dart';
+import 'package:frontend/screens/users_screen.dart';
 import 'package:frontend/screens/roles_screen.dart';
+import 'package:frontend/screens/printerman_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -14,11 +15,6 @@ class HomeScreen extends ConsumerWidget {
     final user = authState.user;
 
     if (!authState.isAuthenticated || user == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-      });
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
@@ -106,6 +102,17 @@ class HomeScreen extends ConsumerWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const RolesScreen()),
+                );
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: const Text('PrinterMan'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PrinterManScreen()),
                 );
                 Navigator.pop(context);
               },

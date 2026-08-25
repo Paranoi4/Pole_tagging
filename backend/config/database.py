@@ -9,8 +9,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"options": "-csearch_path=pole_tagging"},
+    connect_args={"options": "-csearch_path=public"},
 )
+
+with engine.begin() as connection:
+    connection.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS pole_tagging")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

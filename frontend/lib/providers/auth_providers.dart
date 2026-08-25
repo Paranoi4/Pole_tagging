@@ -47,7 +47,7 @@ class AuthState {
   }
 
   factory AuthState.initial() {
-    return AuthState();
+    return AuthState(isLoading: true);
   }
 }
 

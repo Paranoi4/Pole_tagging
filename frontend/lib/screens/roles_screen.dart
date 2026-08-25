@@ -1,7 +1,9 @@
+// 📁 lib/screens/roles_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend/models/role.dart';
-import 'package:frontend/providers/api_providers.dart';
+import 'package:frontend/providers/role_provider.dart'; // ← NEW IMPORT
 
 class RolesScreen extends ConsumerStatefulWidget {
   const RolesScreen({super.key});
@@ -11,73 +13,63 @@ class RolesScreen extends ConsumerStatefulWidget {
 }
 
 class _RolesScreenState extends ConsumerState<RolesScreen> {
-  List<Role> roles = [];
-  bool isLoading = true;
-  String? error;
+  // ❌ REMOVED: List<Role> roles = [];
+  // ❌ REMOVED: bool isLoading = true;
+  // ❌ REMOVED: String? error;
 
   @override
   void initState() {
     super.initState();
-    _loadRoles();
-  }
-
-  Future<void> _loadRoles() async {
-    setState(() {
-      isLoading = true;
-      error = null;
+    // ✅ Load roles through provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(roleProvider.notifier).loadRoles();
     });
-
-    try {
-      roles = await ref.read(apiProvider).getAllRoles();
-    } catch (e) {
-      setState(() {
-        error = e.toString();
-      });
-    } finally {
-      setState(() {
-        isLoading = false;
-      });
-    }
   }
+
+  // ❌ REMOVED: Future<void> _loadRoles() async { ... }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Watch the provider for state
+    final roleState = ref.watch(roleProvider);
+    final notifier = ref.read(roleProvider.notifier);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Roles'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadRoles,
+            onPressed: notifier.loadRoles, // ✅ Call provider action
           ),
         ],
       ),
-      body: isLoading
+      body: roleState.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : error != null
+          : roleState.errorMessage != null
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Error: $error',
+                        'Error: ${roleState.errorMessage}',
                         style: const TextStyle(color: Colors.red),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: _loadRoles,
+                        onPressed: notifier.loadRoles, // ✅ Call provider action
                         child: const Text('Retry'),
                       ),
                     ],
                   ),
                 )
-              : roles.isEmpty
+              : roleState.roles.isEmpty
                   ? const Center(child: Text('No roles found'))
                   : ListView.builder(
-                      itemCount: roles.length,
+                      itemCount: roleState.roles.length,
                       itemBuilder: (context, index) {
-                        final role = roles[index];
+                        final role = roleState.roles[index];
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundColor: Colors.purple,

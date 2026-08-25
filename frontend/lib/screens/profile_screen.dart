@@ -11,11 +11,6 @@ class ProfileScreen extends ConsumerWidget {
     final user = authState.user;
 
     if (!authState.isAuthenticated || user == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-      });
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );

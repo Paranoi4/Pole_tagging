@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from datetime import timedelta
 from urllib.parse import urlencode
 import requests
@@ -11,7 +12,7 @@ from google.auth.transport import requests as google_requests
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
-from config.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+from config.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, FRONTEND_URL  
 from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_SECONDS
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -23,7 +24,12 @@ def login(
     request: schemas.LoginRequest,
     db: Session = Depends(get_db)
 ):
-    user = db.query(models.User).filter(models.User.username == request.username).first()
+    user = db.query(models.User).filter(
+        or_(
+            models.User.username == request.username,
+            models.User.email == request.username,
+        )
+    ).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
@@ -138,7 +144,7 @@ def google_callback(code: str, db: Session = Depends(get_db)):
     )
 
     redirect_url = (
-        "http://localhost:3000/login?google_auth=true&token="
+        f"{FRONTEND_URL}/login?google_auth=true&token="
         f"{access_token}&username={user.username}"
     )
     return RedirectResponse(redirect_url)
