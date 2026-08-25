@@ -5,6 +5,7 @@ import 'package:frontend/screens/profile_screen.dart';
 import 'package:frontend/screens/users_screen.dart';
 import 'package:frontend/screens/roles_screen.dart';
 import 'package:frontend/screens/printerman_screen.dart';
+import 'package:frontend/screens/dispatcher_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -29,7 +30,16 @@ class HomeScreen extends ConsumerWidget {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                MaterialPageRoute(builder: (_) => const PrinterManScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.local_shipping),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DispatcherScreen()),
               );
             },
           ),
@@ -107,23 +117,12 @@ class HomeScreen extends ConsumerWidget {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.qr_code_scanner),
-              title: const Text('PrinterMan'),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrinterManScreen()),
-                );
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.person),
               title: const Text('Profile'),
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                  MaterialPageRoute(builder: (_) => const PrinterManScreen()),
                 );
                 Navigator.pop(context);
               },
