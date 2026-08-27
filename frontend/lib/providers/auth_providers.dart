@@ -132,6 +132,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
         errorMessage: e.toString(),
       );
+      rethrow;
     }
   }
 

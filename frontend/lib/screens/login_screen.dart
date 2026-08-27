@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -131,7 +132,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
-    await ref.read(authProvider.notifier).login(email, password);
+
+    try {
+      await ref.read(authProvider.notifier).login(email, password);
+      // If login is successful, go to home
+      if (context.mounted && ref.read(authProvider).isAuthenticated) {
+        context.go('/');
+      }
+    } catch (e) {
+      // Show error message from backend
+      if (context.mounted) {
+        _showErrorSnackbar(e.toString());
+      }
+    }
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -551,7 +564,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               style: TextStyle(fontSize: 13, color: _gray400),
             ),
             GestureDetector(
-              onTap: () => Navigator.pushNamed(context, '/register'),
+              onTap: () => context.go('/register'),
               child: const Text(
                 'Register →',
                 style: TextStyle(

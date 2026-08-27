@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:frontend/providers/auth_providers.dart';
 import 'package:frontend/screens/home_screen.dart';
 import 'package:frontend/screens/login_screen.dart';
@@ -7,6 +9,8 @@ import 'package:frontend/screens/profile_screen.dart';
 import 'package:frontend/screens/register_screen.dart';
 import 'package:frontend/screens/roles_screen.dart';
 import 'package:frontend/screens/users_screen.dart';
+import 'package:frontend/screens/printerman_screen.dart';
+import 'package:frontend/screens/dispatcher_screen.dart';
 
 class AppRouter extends ConsumerStatefulWidget {
   const AppRouter({super.key});
@@ -17,12 +21,86 @@ class AppRouter extends ConsumerStatefulWidget {
 
 class _AppRouterState extends ConsumerState<AppRouter> {
   final _navigatorKey = GlobalKey<NavigatorState>();
+  late final GoRouter _router;
   bool _isBootstrapping = true;
 
   @override
   void initState() {
     super.initState();
+
+    // Capture Google's redirect params (if any) BEFORE constructing
+    // GoRouter. GoRouter's `initialLocation: '/login'` below forces the
+    // browser URL to bare '/login' as soon as it initializes on a fresh
+    // page load — which is exactly what a Google OAuth redirect is — so
+    // Uri.base has to be read here, synchronously, before that happens.
+    // Reading it later (even in a Future.microtask right after) can be too
+    // late: the query string may already be gone from the address bar.
+    final initialUri = Uri.base;
+    final googleToken = initialUri.queryParameters['token'];
+    final isGoogleAuth = initialUri.queryParameters['google_auth'] == 'true';
+
+    _router = GoRouter(
+      navigatorKey: _navigatorKey,
+      initialLocation: '/login',
+      redirect: (_, state) {
+        if (_isBootstrapping) return null;
+
+        final isPublicRoute =
+            state.uri.path == '/login' || state.uri.path == '/register';
+        if (!ref.read(authProvider).isAuthenticated && !isPublicRoute) {
+          return '/login';
+        }
+        if (ref.read(authProvider).isAuthenticated && isPublicRoute) {
+          return _initialRouteForUser();
+        }
+        return null;
+      },
+      routes: [
+        GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+        GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
+        GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
+        GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
+        GoRoute(path: '/users', builder: (_, __) => const UsersScreen()),
+        GoRoute(path: '/roles', builder: (_, __) => const RolesScreen()),
+        GoRoute(
+          path: '/printerman',
+          builder: (_, __) {
+            final roles = ref
+                .read(authProvider)
+                .user
+                ?.roles
+                .map((role) => role.roleName)
+                .toSet();
+            return PrinterManScreen(
+              showDispatcherShortcut: roles?.contains('Dispatcher') ?? false,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/dispatcher',
+          builder: (_, __) {
+            final roles = ref
+                .read(authProvider)
+                .user
+                ?.roles
+                .map((role) => role.roleName)
+                .toSet();
+            return DispatcherScreen(
+              showPrintermanShortcut: roles?.contains('Printerman') ?? false,
+            );
+          },
+        ),
+      ],
+    );
     Future.microtask(() async {
+      // The googleToken/isGoogleAuth values were already captured above,
+      // synchronously, before GoRouter's construction had any chance to
+      // touch the URL — this block just does the async work of saving it.
+      if (isGoogleAuth && googleToken != null && googleToken.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', googleToken);
+      }
+
       await ref.read(authProvider.notifier).loadUser();
       if (!mounted) return;
       setState(() => _isBootstrapping = false);
@@ -33,11 +111,23 @@ class _AppRouterState extends ConsumerState<AppRouter> {
   void _navigateForAuth(bool isAuthenticated) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        isAuthenticated ? '/home' : '/login',
-        (route) => false,
-      );
+      _router.go(isAuthenticated ? _initialRouteForUser() : '/login');
     });
+  }
+
+  String _initialRouteForUser() {
+    final roles =
+        ref.read(authProvider).user?.roles.map((role) => role.roleName).toSet();
+
+    if (roles?.contains('Printerman') ?? false) return '/printerman';
+    if (roles?.contains('Dispatcher') ?? false) return '/dispatcher';
+    return '/home';
+  }
+
+  @override
+  void dispose() {
+    _router.dispose();
+    super.dispose();
   }
 
   @override
@@ -49,50 +139,10 @@ class _AppRouterState extends ConsumerState<AppRouter> {
       }
     });
 
-    final authState = ref.watch(authProvider);
-
-    if (_isBootstrapping) {
-      return MaterialApp(
-        title: 'Poletagging',
-        debugShowCheckedModeBanner: false,
-        home: const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(),
-          ),
-        ),
-      );
-    }
-
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'Poletagging',
       debugShowCheckedModeBanner: false,
-      navigatorKey: _navigatorKey,
-      initialRoute: '/login',
-      onGenerateRoute: (settings) {
-        final routeName = settings.name ?? '/login';
-        final protectedRoutes = {'/home', '/profile', '/users', '/roles'};
-
-        if (protectedRoutes.contains(routeName) && !authState.isAuthenticated) {
-          return MaterialPageRoute(builder: (_) => const LoginScreen());
-        }
-
-        switch (routeName) {
-          case '/login':
-            return MaterialPageRoute(builder: (_) => const LoginScreen());
-          case '/home':
-            return MaterialPageRoute(builder: (_) => const HomeScreen());
-          case '/register':
-            return MaterialPageRoute(builder: (_) => const RegisterScreen());
-          case '/profile':
-            return MaterialPageRoute(builder: (_) => const ProfileScreen());
-          case '/users':
-            return MaterialPageRoute(builder: (_) => const UsersScreen());
-          case '/roles':
-            return MaterialPageRoute(builder: (_) => const RolesScreen());
-          default:
-            return MaterialPageRoute(builder: (_) => const LoginScreen());
-        }
-      },
+      routerConfig: _router,
     );
   }
 }

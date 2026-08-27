@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
-import 'package:frontend/screens/profile_screen.dart';
-import 'package:frontend/screens/users_screen.dart';
-import 'package:frontend/screens/roles_screen.dart';
+import 'package:frontend/screens/no_roles_screen.dart';
 import 'package:frontend/screens/printerman_screen.dart';
 import 'package:frontend/screens/dispatcher_screen.dart';
-import 'package:frontend/screens/no_roles_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -33,6 +31,20 @@ class HomeScreen extends ConsumerWidget {
       return const NoRolesScreen();
     }
 
+    // Admins keep this generic dashboard so the drawer (Users/Roles) stays
+    // one tap away. A non-Admin Printerman or Dispatcher instead lands
+    // directly on their working screen rather than this placeholder — with
+    // a Dispatcher shortcut icon added to Printerman's app bar for anyone
+    // holding both roles.
+    if (!isAdmin) {
+      if (isPrinterman) {
+        return PrinterManScreen(showDispatcherShortcut: isDispatcher);
+      }
+      if (isDispatcher) {
+        return const DispatcherScreen();
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Poletagging'),
@@ -42,10 +54,7 @@ class HomeScreen extends ConsumerWidget {
               icon: const Icon(Icons.print),
               tooltip: 'Printerman',
               onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrinterManScreen()),
-                );
+                context.push('/printerman');
               },
             ),
           if (isDispatcher)
@@ -53,10 +62,7 @@ class HomeScreen extends ConsumerWidget {
               icon: const Icon(Icons.local_shipping),
               tooltip: 'Dispatcher',
               onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DispatcherScreen()),
-                );
+                context.push('/dispatcher');
               },
             ),
           IconButton(
@@ -64,11 +70,7 @@ class HomeScreen extends ConsumerWidget {
             onPressed: () async {
               await ref.read(authProvider.notifier).logout();
               if (context.mounted) {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/login',
-                  (route) => false,
-                );
+                context.go('/login');
               }
             },
           ),
@@ -119,10 +121,7 @@ class HomeScreen extends ConsumerWidget {
                 title: const Text('Users'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const UsersScreen()),
-                  );
+                  context.push('/users');
                 },
               ),
               ListTile(
@@ -130,10 +129,7 @@ class HomeScreen extends ConsumerWidget {
                 title: const Text('Roles'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const RolesScreen()),
-                  );
+                  context.push('/roles');
                 },
               ),
             ],
@@ -143,10 +139,7 @@ class HomeScreen extends ConsumerWidget {
                 title: const Text('Printerman'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const PrinterManScreen()),
-                  );
+                  context.push('/printerman');
                 },
               ),
             if (isDispatcher)
@@ -155,24 +148,15 @@ class HomeScreen extends ConsumerWidget {
                 title: const Text('Dispatcher'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DispatcherScreen()),
-                  );
+                  context.push('/dispatcher');
                 },
               ),
             ListTile(
-              // NOTE: this previously opened PrinterManScreen instead of the
-              // actual ProfileScreen (which was imported but unused) — fixed
-              // here since it looked like a leftover placeholder.
               leading: const Icon(Icons.person),
               title: const Text('Profile'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                );
+                context.push('/profile');
               },
             ),
             const Divider(),
@@ -186,72 +170,14 @@ class HomeScreen extends ConsumerWidget {
                 Navigator.pop(context);
                 await ref.read(authProvider.notifier).logout();
                 if (context.mounted) {
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    '/login',
-                    (route) => false,
-                  );
+                  context.go('/login');
                 }
               },
             ),
           ],
         ),
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.check_circle,
-              size: 80,
-              color: Colors.green,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Welcome, ${user?.firstName ?? "User"}!',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              user?.email ?? '',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              margin: const EdgeInsets.symmetric(horizontal: 32),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                children: [
-                  const Text(
-                    'Roles:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  if (user?.roles.isEmpty ?? true)
-                    const Text('No roles assigned')
-                  else
-                    ...user!.roles.map(
-                      (role) => Chip(
-                        label: Text(role.roleName),
-                        backgroundColor: Colors.blue.shade100,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      body: Container(),
     );
   }
 }

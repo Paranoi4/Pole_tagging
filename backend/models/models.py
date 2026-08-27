@@ -38,6 +38,13 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Login lockout: after 5 wrong passwords in a row, locked_until is set to
+    # 5 minutes out and login is refused until that passes. failed_login_attempts
+    # resets to 0 either on a successful login or once locked_until has passed
+    # (whichever comes first) — see login() in router/auth.py.
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+
     # Relationship
     user_roles = relationship(
         "UserRole",

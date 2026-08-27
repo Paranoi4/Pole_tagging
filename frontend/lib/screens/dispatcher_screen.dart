@@ -1,15 +1,23 @@
 // 📁 lib/screens/dispatcher_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:frontend/providers/auth_providers.dart';
 
-class DispatcherScreen extends StatefulWidget {
-  const DispatcherScreen({super.key});
+class DispatcherScreen extends ConsumerStatefulWidget {
+  /// When true (the user also holds the Printerman role), an extra
+  /// app-bar icon is shown to jump back to the Printerman screen — mirrors
+  /// PrinterManScreen's showDispatcherShortcut for the reverse direction.
+  final bool showPrintermanShortcut;
+
+  const DispatcherScreen({super.key, this.showPrintermanShortcut = false});
 
   @override
-  State<DispatcherScreen> createState() => _DispatcherScreenState();
+  ConsumerState<DispatcherScreen> createState() => _DispatcherScreenState();
 }
 
-class _DispatcherScreenState extends State<DispatcherScreen> {
+class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
   // Hardcoded data
   final List<Map<String, String>> printedBatches = const [
     {
@@ -67,13 +75,22 @@ class _DispatcherScreenState extends State<DispatcherScreen> {
         elevation: 1,
         centerTitle: false,
         actions: [
+          if (widget.showPrintermanShortcut)
+            IconButton(
+              icon: const Icon(Icons.print),
+              tooltip: 'Printerman',
+              onPressed: () => context.go('/printerman'),
+            ),
           IconButton(
             icon: const Icon(Icons.person_outline),
             onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {},
+            onPressed: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) context.go('/login');
+            },
           ),
         ],
       ),

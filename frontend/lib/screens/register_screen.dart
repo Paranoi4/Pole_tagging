@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_providers.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -294,7 +295,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               const Text('Already have an account? ',
                   style: TextStyle(fontSize: 13, color: _gray400)),
               GestureDetector(
-                onTap: () => Navigator.pushReplacementNamed(context, '/login'),
+                onTap: () => context.go('/login'),
                 child: const Text('Sign in',
                     style: TextStyle(
                         fontSize: 13,

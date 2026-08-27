@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from datetime import timedelta
+from datetime import timedelta, datetime
 from urllib.parse import urlencode
 import requests
 
@@ -16,6 +16,12 @@ from config.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIREC
 from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_SECONDS
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+# Login lockout: 5 wrong passwords in a row locks the account for 5 minutes.
+# The counter resets on its own once the lockout passes, even without a
+# successful login in between — see the `locked_until` check below.
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(minutes=5)
 
 
 # ===== LOGIN =====
@@ -33,6 +39,27 @@ def login(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
+    # A lock still in effect blocks the attempt outright — checked before the
+    # password is even verified, so a locked account can't be probed further.
+    now = datetime.utcnow()
+    if user.locked_until and user.locked_until > now:
+        remaining_seconds = int((user.locked_until - now).total_seconds())
+        remaining_minutes = max(1, (remaining_seconds + 59) // 60)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Too many failed login attempts. Try again in "
+                f"{remaining_minutes} minute(s)."
+            ),
+        )
+
+    # The lock has expired (or never existed) but a stale counter is still
+    # sitting here from before — clear it now so a fresh 5-attempt window
+    # starts, without requiring a successful login first.
+    if user.locked_until and user.locked_until <= now:
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
     # Google accounts hold a placeholder password hash, so they must never be
     # allowed through the password login path.
     if (user.auth_provider or "local") != "local":
@@ -42,11 +69,30 @@ def login(
         )
 
     if not verify_password(request.password, user.password):
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+
+        if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            user.locked_until = now + LOCKOUT_DURATION
+            db.commit()
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many failed login attempts. Try again in "
+                    f"{int(LOCKOUT_DURATION.total_seconds() // 60)} minute(s)."
+                ),
+            )
+
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    
+
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is inactive")
-    
+
+    # Successful login clears the counter, same as a naturally expired lock.
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    db.commit()
+
     access_token_expires = timedelta(seconds=ACCESS_TOKEN_EXPIRE_SECONDS)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires

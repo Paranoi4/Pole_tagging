@@ -1,14 +1,23 @@
 // 📁 lib/screens/printerman_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:frontend/providers/auth_providers.dart';
 
-class PrinterManScreen extends StatelessWidget {
-  const PrinterManScreen({super.key});
+class PrinterManScreen extends ConsumerWidget {
+  /// When true (the user also holds the Dispatcher role), an extra
+  /// app-bar icon is shown to jump to the Dispatcher screen — since a
+  /// Printerman+Dispatcher user lands here first and has no drawer to
+  /// reach it otherwise.
+  final bool showDispatcherShortcut;
+
+  const PrinterManScreen({super.key, this.showDispatcherShortcut = false});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     // Hardcoded data
-    final List<Map<String, String>> currentBatchTags = const [
+    const currentBatchTags = <Map<String, String>>[
       {
         'tagId': 'N31MW',
         'poleNo': '100030',
@@ -97,13 +106,22 @@ class PrinterManScreen extends StatelessWidget {
         elevation: 1,
         centerTitle: false,
         actions: [
+          if (showDispatcherShortcut)
+            IconButton(
+              icon: const Icon(Icons.local_shipping),
+              tooltip: 'Dispatcher',
+              onPressed: () => context.go('/dispatcher'),
+            ),
           IconButton(
             icon: const Icon(Icons.person_outline),
             onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {},
+            onPressed: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) context.go('/login');
+            },
           ),
         ],
       ),
