@@ -8,9 +8,6 @@ Base.metadata.create_all(bind=engine)
 
 
 # ===== SEED FIXED ROLES =====
-# Roles are fixed for this system (Admin, Printerman, Dispatcher) — there is
-# no "create role" UI. This just makes sure the three rows exist on startup,
-# so /user-roles has something valid to assign against on a fresh database.
 def seed_roles():
     db = next(get_db())
     try:
@@ -25,7 +22,7 @@ def seed_roles():
 seed_roles()
 
 # Import routers
-from router import users, roles, auth, user_roles, me
+from router import users, roles, auth, user_roles, me, du, tags  # ← Add tags
 
 app = FastAPI(title="Poletagging API")
 
@@ -41,8 +38,10 @@ def root():
     return {"message": "Poletagging API is running"}
 
 # Include routers
-app.include_router(auth.router)  
+app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(users.router)
 app.include_router(roles.router)
 app.include_router(user_roles.router)
+app.include_router(du.router)    # ← DU router
+app.include_router(tags.router)  # ← Tags router

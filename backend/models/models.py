@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from config.database import Base
@@ -18,6 +18,19 @@ class Role(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+
+class DistributionUtility(Base):
+    __tablename__ = "distribution_utilities"
+
+    du_id = Column(Integer, primary_key=True, index=True)
+    du_name = Column(String(255), nullable=False)
+    du_code = Column(String(255), nullable=False, unique=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    
+    creator = relationship("User", foreign_keys=[created_by])
+    tags = relationship("Tag", back_populates="du", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -68,3 +81,37 @@ class UserRole(Base):
     # Relationships
     user = relationship("User", back_populates="user_roles")
     role = relationship("Role", back_populates="user_roles")
+
+# Add after DistributionUtility model
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    tag_id = Column(Integer, primary_key=True, index=True)
+    du_id = Column(Integer, ForeignKey("distribution_utilities.du_id", ondelete="CASCADE"), nullable=False)
+    tag_code = Column(String(20), nullable=False)
+    pole_no = Column(String(255), nullable=False)
+    status = Column(String(50), nullable=False, default="Available")
+    remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+
+    # Relationships
+    du = relationship("DistributionUtility", back_populates="tags")
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+
+    # Unique constraint: tag_code must be unique per DU
+    __table_args__ = (
+        UniqueConstraint('du_id', 'tag_code', name='uq_tag_du_code'),
+    )
+
+    # Status constants
+    STATUS_AVAILABLE = "Available"
+    STATUS_PRINTED = "Printed"
+    STATUS_DISPATCHED = "Dispatched"
+    STATUS_INSTALLED = "Installed"
+    STATUS_LOST = "Lost"
+    STATUS_DAMAGED = "Damaged"

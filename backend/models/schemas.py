@@ -97,3 +97,77 @@ class TokenResponse(BaseModel):
 
 class LoginResponse(TokenResponse):
     user: UserOut
+
+# Add to schemas.py
+
+# ============================================================
+# DISTRIBUTION UTILITY
+# ============================================================
+
+class DUCreate(BaseModel):
+    du_name: str = Field(min_length=1, max_length=255)
+    du_code: str = Field(min_length=1, max_length=255)
+
+
+class DUUpdate(BaseModel):
+    du_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    du_code: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    is_active: Optional[bool] = None
+
+
+class DUOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    du_id: int
+    du_name: str
+    du_code: str
+    is_active: bool
+    created_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    creator: Optional[UserOut] = None
+
+
+class DUWithStats(DUOut):
+    tags_count: int = 0
+    available_count: int = 0
+    printed_count: int = 0
+    dispatched_count: int = 0
+
+
+# ============================================================
+# TAG
+# ============================================================
+
+class TagCreate(BaseModel):
+    du_id: int
+    tag_code: str = Field(min_length=4, max_length=20)
+    pole_no: str = Field(min_length=1, max_length=255)
+    status: Optional[str] = Field(default="Available")
+    remarks: Optional[str] = None
+
+
+class TagUpdate(BaseModel):
+    tag_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
+    pole_no: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    status: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class TagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    tag_id: int
+    du_id: int
+    tag_code: str
+    pole_no: str
+    status: str
+    remarks: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
+    
+    du: Optional[DUOut] = None
+    
+    @property
+    def full_tag(self) -> str:
+        """tag_code already includes the DU prefix."""
+        return self.tag_code
