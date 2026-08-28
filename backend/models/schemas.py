@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -26,18 +26,10 @@ class UserCreate(BaseModel):
     email: EmailStr
     contact: Optional[str] = None
     username: str = Field(min_length=3, max_length=50)
-    # bcrypt only reads the first 72 bytes, so anything longer is silently
-    # truncated. Reject it up front rather than cutting it without telling anyone.
-    password: str = Field(min_length=8, max_length=72)  # Plain password, will be hashed
-    # auth_provider and google_id are set by the server, never by the client.
+    password: str = Field(min_length=8, max_length=72)
 
 
 class UserCreateAdmin(UserCreate):
-    """Used by POST /users, which requires a token.
-
-    Public registration keeps using UserCreate, which has no role_ids, so
-    nobody can grant themselves a role by signing up.
-    """
     role_ids: list[int] = []
 
 
@@ -98,7 +90,6 @@ class TokenResponse(BaseModel):
 class LoginResponse(TokenResponse):
     user: UserOut
 
-# Add to schemas.py
 
 # ============================================================
 # DISTRIBUTION UTILITY
@@ -134,6 +125,87 @@ class DUWithStats(DUOut):
 
 
 # ============================================================
+# WORK ORDER
+# ============================================================
+
+class WorkOrderCreate(BaseModel):
+    du_id: int
+    work_order_name: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = None
+
+
+class WorkOrderUpdate(BaseModel):
+    work_order_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    description: Optional[str] = None
+
+
+class WorkOrderSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    work_order_id: int
+    du_id: int
+    work_order_name: str
+    work_order_code: str
+
+
+class WorkOrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    work_order_id: int
+    du_id: int
+    work_order_name: str
+    work_order_code: str
+    description: Optional[str] = None
+    created_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    
+    du: Optional[DUOut] = None
+    batches: List["BatchSummary"] = []
+
+
+# ============================================================
+# BATCH
+# ============================================================
+
+class BatchCreate(BaseModel):
+    du_id: int
+    work_order_id: int
+    quantity: int = Field(ge=1, le=1000)
+    assigned_to: Optional[int] = None
+
+
+class BatchUpdate(BaseModel):
+    status: Optional[str] = None
+    assigned_to: Optional[int] = None
+
+
+class BatchSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    batch_id: int
+    du_id: int
+    work_order_id: Optional[int] = None
+    batch_code: str
+    quantity: int
+    status: str
+
+
+class BatchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    batch_id: int
+    du_id: int
+    work_order_id: Optional[int] = None
+    batch_code: str
+    quantity: int
+    status: str
+    assigned_to: Optional[int] = None
+    created_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    
+    du: Optional[DUOut] = None
+    work_order: Optional[WorkOrderSummary] = None
+    tags: List["TagOut"] = []
+    assigned_crew: Optional[UserOut] = None
+
+
+# ============================================================
 # TAG
 # ============================================================
 
@@ -166,8 +238,8 @@ class TagOut(BaseModel):
     updated_by: Optional[int] = None
     
     du: Optional[DUOut] = None
+    batch: Optional[BatchSummary] = None
     
     @property
     def full_tag(self) -> str:
-        """tag_code already includes the DU prefix."""
         return self.tag_code

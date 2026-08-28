@@ -22,7 +22,7 @@ def seed_roles():
 seed_roles()
 
 # Import routers
-from router import users, roles, auth, user_roles, me, du, tags  # ← Add tags
+from router import users, roles, auth, user_roles, me, du, tags, batches, work_orders
 
 app = FastAPI(title="Poletagging API")
 
@@ -43,5 +43,7 @@ app.include_router(me.router)
 app.include_router(users.router)
 app.include_router(roles.router)
 app.include_router(user_roles.router)
-app.include_router(du.router)    # ← DU router
-app.include_router(tags.router)  # ← Tags router
+app.include_router(du.router)
+app.include_router(tags.router)
+app.include_router(batches.router)
+app.include_router(work_orders.router)  # ← NEW!
