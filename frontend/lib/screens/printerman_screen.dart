@@ -4,93 +4,128 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
+import 'package:frontend/providers/du_provider.dart';
+import 'package:frontend/models/du.dart';
+import 'package:frontend/providers/work_order_provider.dart';
+import 'package:frontend/models/work_order.dart';
 
-class PrinterManScreen extends ConsumerWidget {
-  /// When true (the user also holds the Dispatcher role), an extra
-  /// app-bar icon is shown to jump to the Dispatcher screen — since a
-  /// Printerman+Dispatcher user lands here first and has no drawer to
-  /// reach it otherwise.
+class PrinterManScreen extends ConsumerStatefulWidget {
   final bool showDispatcherShortcut;
 
   const PrinterManScreen({super.key, this.showDispatcherShortcut = false});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Hardcoded data
-    const currentBatchTags = <Map<String, String>>[
-      {
-        'tagId': 'N31MW',
-        'poleNo': '100030',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31MY',
-        'poleNo': '100031',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31NO',
-        'poleNo': '100032',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N1',
-        'poleNo': '100033',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N3',
-        'poleNo': '100035',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N4',
-        'poleNo': '100036',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N5',
-        'poleNo': '100037',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N6',
-        'poleNo': '100038',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N8',
-        'poleNo': '100040',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31N9',
-        'poleNo': '100041',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31NA',
-        'poleNo': '100042',
-        'status': 'Available',
-        'remarks': '—'
-      },
-      {
-        'tagId': 'N31NB',
-        'poleNo': '100043',
-        'status': 'Available',
-        'remarks': '—'
-      },
-    ];
+  ConsumerState<PrinterManScreen> createState() => _PrinterManScreenState();
+}
+
+class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
+  // Form state
+  DU? _selectedDU;
+  WorkOrder? _selectedWorkOrder; // ✅ ADD THIS
+  String? _selectedWorkOrderId;
+  int _quantity = 24;
+  bool _isGenerating = false;
+
+  // ✅ Fixed: Actual hardcoded tags
+  // ✅ Fixed: Actual hardcoded tags
+  final List<Map<String, String>> currentBatchTags = const [
+    {
+      'tagId': 'N31MW',
+      'poleNo': '100030',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31MY',
+      'poleNo': '100031',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31NO',
+      'poleNo': '100032',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N1',
+      'poleNo': '100033',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N3',
+      'poleNo': '100035',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N4',
+      'poleNo': '100036',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N5',
+      'poleNo': '100037',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N6',
+      'poleNo': '100038',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N8',
+      'poleNo': '100040',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31N9',
+      'poleNo': '100041',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31NA',
+      'poleNo': '100042',
+      'status': 'Available',
+      'remarks': '—'
+    },
+    {
+      'tagId': 'N31NB',
+      'poleNo': '100043',
+      'status': 'Available',
+      'remarks': '—'
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Load DUs when screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(duProvider.notifier).loadDUs();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final duState = ref.watch(duProvider);
+    final workOrderState = ref.watch(workOrderProvider); // ✅ ADD THIS
+
+    // Sync selected DU with provider state
+    if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
+      _selectedDU = duState.selectedDU;
+    }
+// ✅ ADD THIS - Sync selected Work Order with provider state
+    if (workOrderState.selectedWorkOrder != null &&
+        _selectedWorkOrder != workOrderState.selectedWorkOrder) {
+      _selectedWorkOrder = workOrderState.selectedWorkOrder;
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -106,7 +141,7 @@ class PrinterManScreen extends ConsumerWidget {
         elevation: 1,
         centerTitle: false,
         actions: [
-          if (showDispatcherShortcut)
+          if (widget.showDispatcherShortcut)
             IconButton(
               icon: const Icon(Icons.local_shipping),
               tooltip: 'Dispatcher',
@@ -134,7 +169,7 @@ class PrinterManScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ============================================================
-                // STAT CARDS - Now stretch to fill width
+                // STAT CARDS
                 // ============================================================
                 Row(
                   children: [
@@ -168,7 +203,7 @@ class PrinterManScreen extends ConsumerWidget {
                     Expanded(
                         child: _buildStatCard(
                       'THIS BATCH QUANTITY',
-                      '24',
+                      '$_quantity',
                       'BT-2026-0043 - awaiting print',
                       Icons.production_quantity_limits,
                       Colors.purple,
@@ -179,7 +214,7 @@ class PrinterManScreen extends ConsumerWidget {
                 const SizedBox(height: 32),
 
                 // ============================================================
-                // NEW PRINT BATCH - Full width with spaced fields
+                // NEW PRINT BATCH
                 // ============================================================
                 Container(
                   padding: const EdgeInsets.all(24),
@@ -207,22 +242,29 @@ class PrinterManScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      // Fields in a row with equal spacing
                       Row(
                         children: [
                           Expanded(
-                              child: _buildBatchField(
-                                  'DU CODE', 'N – Negros Power')),
+                            child: _buildDUField(duState),
+                          ),
                           const SizedBox(width: 24),
                           Expanded(
-                              child:
-                                  _buildBatchField('BATCH ID', 'BT-2026-0044')),
+                            child: _buildBatchField(
+                              'BATCH ID',
+                              duState.isLoadingNextCode
+                                  ? 'Calculating...'
+                                  : (duState.nextBatchCode ??
+                                      'Select DU'), // ← CHANGED THIS
+                            ),
+                          ),
                           const SizedBox(width: 24),
                           Expanded(
-                              child: _buildBatchField(
-                                  'WORK ORDER REFERENCE', 'WO-2026-0118')),
+                            child: _buildWorkOrderField(workOrderState),
+                          ),
                           const SizedBox(width: 24),
-                          Expanded(child: _buildBatchField('QUANTITY', '24')),
+                          Expanded(
+                            child: _buildQuantityField(),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -231,7 +273,9 @@ class PrinterManScreen extends ConsumerWidget {
                         child: SizedBox(
                           width: 160,
                           child: ElevatedButton(
-                            onPressed: () {},
+                            onPressed: _isGenerating || duState.isLoading
+                                ? null
+                                : _generateBatch,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF1A7A3D),
                               foregroundColor: Colors.white,
@@ -240,7 +284,16 @@ class PrinterManScreen extends ConsumerWidget {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            child: const Text('Generate batch'),
+                            child: _isGenerating
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Generate batch'),
                           ),
                         ),
                       ),
@@ -251,7 +304,7 @@ class PrinterManScreen extends ConsumerWidget {
                 const SizedBox(height: 32),
 
                 // ============================================================
-                // CURRENT BATCH - Full width table
+                // CURRENT BATCH
                 // ============================================================
                 Container(
                   padding: const EdgeInsets.all(24),
@@ -302,10 +355,6 @@ class PrinterManScreen extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 20),
-
-                      // ============================================================
-                      // TABLE - Full width
-                      // ============================================================
                       Container(
                         width: double.infinity,
                         decoration: BoxDecoration(
@@ -387,12 +436,7 @@ class PrinterManScreen extends ConsumerWidget {
                           ],
                         ),
                       ),
-
                       const SizedBox(height: 16),
-
-                      // ============================================================
-                      // PAGINATION
-                      // ============================================================
                       const Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -418,9 +462,6 @@ class PrinterManScreen extends ConsumerWidget {
 
                 const SizedBox(height: 16),
 
-                // ============================================================
-                // FOOTER NOTE
-                // ============================================================
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -454,7 +495,277 @@ class PrinterManScreen extends ConsumerWidget {
     );
   }
 
-  // ─── Helper Widgets ───
+  // ============================================================
+  // HELPER METHODS
+  // ============================================================
+
+  Widget _buildDUField(DUState duState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'DU CODE',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: duState.isLoading
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Loading DUs...'),
+                    ],
+                  ),
+                )
+              : duState.dus.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No DUs available',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : DropdownButtonHideUnderline(
+                      child: DropdownButton<DU>(
+                        value: duState.selectedDU,
+                        isExpanded: true,
+                        hint: const Text('Select DU'),
+                        items: duState.dus.map((du) {
+                          return DropdownMenuItem<DU>(
+                            value: du,
+                            child: Text(du.displayName),
+                          );
+                        }).toList(),
+                        onChanged: (du) {
+                          if (du != null) {
+                            setState(() {
+                              _selectedDU = du;
+                              _selectedWorkOrder =
+                                  null; // ✅ ADD THIS - Reset work order selection
+                            });
+                            ref.read(duProvider.notifier).selectDU(du);
+                            // ✅ ADD THIS - Load work orders for this DU
+                            ref
+                                .read(workOrderProvider.notifier)
+                                .loadWorkOrdersForDU(du.duId);
+                          }
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWorkOrderField(WorkOrderState workOrderState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'WORK ORDER REFERENCE',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: workOrderState.isLoading
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Loading work orders...'),
+                    ],
+                  ),
+                )
+              : workOrderState.workOrders.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No work orders available',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : DropdownButtonHideUnderline(
+                      child: DropdownButton<WorkOrder>(
+                        value: workOrderState.selectedWorkOrder,
+                        isExpanded: true,
+                        hint: const Text('Select Work Order'),
+                        items: workOrderState.workOrders.map((wo) {
+                          return DropdownMenuItem<WorkOrder>(
+                            value: wo,
+                            child: Text(wo.displayName),
+                          );
+                        }).toList(),
+                        onChanged: (wo) {
+                          if (wo != null) {
+                            setState(() {
+                              _selectedWorkOrder = wo;
+                              _selectedWorkOrderId = wo
+                                  .workOrderCode; // Keep for backward compatibility
+                            });
+                            ref
+                                .read(workOrderProvider.notifier)
+                                .selectWorkOrder(wo);
+                          }
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuantityField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'QUANTITY',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: TextFormField(
+            initialValue: '24',
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              hintText: 'Enter quantity',
+            ),
+            onChanged: (value) {
+              setState(() {
+                _quantity = int.tryParse(value) ?? 1;
+              });
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBatchField(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _generateBatch() async {
+    if (_selectedDU == null) {
+      _showError('Please select a DU');
+      return;
+    }
+
+    if (_selectedWorkOrderId == null) {
+      _showError('Please select a Work Order');
+      return;
+    }
+
+    if (_quantity < 1 || _quantity > 1000) {
+      _showError('Quantity must be between 1 and 1000');
+      return;
+    }
+
+    setState(() => _isGenerating = true);
+
+    try {
+      // TODO: Call API to create batch
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Batch generated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError(e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGenerating = false);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('❌ $message'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
 
   Widget _buildStatCard(
     String label,
@@ -520,31 +831,6 @@ class PrinterManScreen extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildBatchField(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
     );
   }
 

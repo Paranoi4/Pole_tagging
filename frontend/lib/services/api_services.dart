@@ -6,6 +6,9 @@ import 'package:frontend/services/api_exception.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/models/role.dart';
 import 'package:frontend/models/auth.dart';
+import 'package:frontend/models/du.dart';
+import 'package:frontend/models/batch.dart'; // ✅ ADD THIS LINE
+import 'package:frontend/models/work_order.dart';
 
 /// Talks to the Poletagging API.
 ///
@@ -350,6 +353,62 @@ class ApiService {
         response.statusCode,
         response.body,
         fallback: 'Failed to remove role: ${response.statusCode}',
+      );
+    }
+  }
+
+  Future<List<DU>> getDUs() async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/du?limit=100'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => DU.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load DUs: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Get batches for a specific DU to calculate next code
+  Future<List<Batch>> getBatchesForDU(int duId) async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/batches?du_id=$duId&limit=100'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Batch.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load batches: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Get work orders for a specific DU
+  Future<List<WorkOrder>> getWorkOrdersForDU(int duId) async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/work-orders?du_id=$duId&limit=100'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => WorkOrder.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load work orders: ${response.statusCode}',
       );
     }
   }
