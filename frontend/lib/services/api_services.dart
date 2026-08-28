@@ -9,6 +9,8 @@ import 'package:frontend/models/auth.dart';
 import 'package:frontend/models/du.dart';
 import 'package:frontend/models/batch.dart'; // ✅ ADD THIS LINE
 import 'package:frontend/models/work_order.dart';
+import 'package:frontend/models/tag.dart'; // Add import
+import 'package:frontend/providers/api_providers.dart';
 
 /// Talks to the Poletagging API.
 ///
@@ -437,6 +439,45 @@ class ApiService {
         response.statusCode,
         response.body,
         fallback: 'Failed to create batch: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Get tags for a specific batch
+  Future<List<Tag>> getBatchTags(int batchId) async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/batches/$batchId/tags'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Tag.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load batch tags: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Get the most recent batch for a DU
+  Future<Batch?> getLatestBatchForDU(int duId) async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/batches?du_id=$duId&limit=1'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      if (data.isEmpty) return null;
+      return Batch.fromJson(data.first);
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load latest batch: ${response.statusCode}',
       );
     }
   }

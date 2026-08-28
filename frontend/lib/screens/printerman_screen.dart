@@ -9,6 +9,9 @@ import 'package:frontend/models/du.dart';
 import 'package:frontend/providers/work_order_provider.dart';
 import 'package:frontend/models/work_order.dart';
 import 'package:frontend/providers/batch_provider.dart';
+import 'package:frontend/models/batch.dart';
+import 'package:frontend/models/tag.dart';
+import 'package:frontend/providers/api_providers.dart';
 
 class PrinterManScreen extends ConsumerStatefulWidget {
   final bool showDispatcherShortcut;
@@ -22,108 +25,46 @@ class PrinterManScreen extends ConsumerStatefulWidget {
 class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   // Form state
   DU? _selectedDU;
-  WorkOrder? _selectedWorkOrder; // ✅ ADD THIS
+  WorkOrder? _selectedWorkOrder;
   String? _selectedWorkOrderId;
   int _quantity = 24;
   bool _isGenerating = false;
 
-  // ✅ Fixed: Actual hardcoded tags
-  // ✅ Fixed: Actual hardcoded tags
-  final List<Map<String, String>> currentBatchTags = const [
-    {
-      'tagId': 'N31MW',
-      'poleNo': '100030',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31MY',
-      'poleNo': '100031',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31NO',
-      'poleNo': '100032',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N1',
-      'poleNo': '100033',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N3',
-      'poleNo': '100035',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N4',
-      'poleNo': '100036',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N5',
-      'poleNo': '100037',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N6',
-      'poleNo': '100038',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N8',
-      'poleNo': '100040',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31N9',
-      'poleNo': '100041',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31NA',
-      'poleNo': '100042',
-      'status': 'Available',
-      'remarks': '—'
-    },
-    {
-      'tagId': 'N31NB',
-      'poleNo': '100043',
-      'status': 'Available',
-      'remarks': '—'
-    },
-  ];
+  // Current batch state
+  Batch? _currentBatch;
+  List<Tag>? _currentBatchTags;
+  bool _isLoadingBatch = false;
 
   @override
   void initState() {
     super.initState();
-    // Load DUs when screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(duProvider.notifier).loadDUs();
+      ref.read(duProvider.notifier).loadDUs().then((_) {
+        // After DUs are loaded, load the latest batch
+        final duState = ref.read(duProvider);
+        if (duState.selectedDU != null) {
+          _loadLatestBatchForDU(duState.selectedDU!.duId);
+        }
+      });
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final duState = ref.watch(duProvider);
-    final workOrderState = ref.watch(workOrderProvider); // ✅ ADD THIS
-    final batchState = ref.watch(batchProvider); // ✅ ADD THIS
+    final workOrderState = ref.watch(workOrderProvider);
+    final batchState = ref.watch(batchProvider);
 
     // Sync selected DU with provider state
     if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
       _selectedDU = duState.selectedDU;
+      // Load latest batch when DU changes
+      if (_selectedDU != null) {
+        _loadLatestBatchForDU(_selectedDU!.duId);
+      }
     }
-// ✅ ADD THIS - Sync selected Work Order with provider state
+
+    // Sync selected Work Order with provider state
     if (workOrderState.selectedWorkOrder != null &&
         _selectedWorkOrder != workOrderState.selectedWorkOrder) {
       _selectedWorkOrder = workOrderState.selectedWorkOrder;
@@ -206,7 +147,9 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                         child: _buildStatCard(
                       'THIS BATCH QUANTITY',
                       '$_quantity',
-                      'BT-2026-0043 - awaiting print',
+                      _currentBatch != null
+                          ? '${_currentBatch!.batchCode} - ${_currentBatch!.quantity} tags'
+                          : 'BT-2026-0043 - awaiting print',
                       Icons.production_quantity_limits,
                       Colors.purple,
                     )),
@@ -255,8 +198,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                               'BATCH ID',
                               duState.isLoadingNextCode
                                   ? 'Calculating...'
-                                  : (duState.nextBatchCode ??
-                                      'Select DU'), // ← CHANGED THIS
+                                  : (duState.nextBatchCode ?? 'Select DU'),
                             ),
                           ),
                           const SizedBox(width: 24),
@@ -308,7 +250,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                 const SizedBox(height: 32),
 
                 // ============================================================
-                // CURRENT BATCH
+                // CURRENT BATCH - WITH REAL DATA
                 // ============================================================
                 Container(
                   padding: const EdgeInsets.all(24),
@@ -327,6 +269,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // ─── Header ──────────────────────────────────────────
                       Row(
                         children: [
                           const Text(
@@ -337,77 +280,110 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.orange[50],
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.orange[200]!),
-                            ),
-                            child: Text(
-                              'BT-2025-0043 - WO-2025-0118 - 24 tags - not yet printed',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.orange[800],
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Table Header
+                          if (_currentBatch != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green[50],
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.green[200]!),
+                              ),
+                              child: Text(
+                                '${_currentBatch!.batchCode} - ${_currentBatch!.quantity} tags - ${_currentBatch!.status}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.green[800],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
                               ),
                               decoration: BoxDecoration(
                                 color: Colors.grey[100],
-                                border: Border(
-                                  bottom: BorderSide(
-                                    color: Colors.grey[300]!,
-                                  ),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey[300]!),
+                              ),
+                              child: Text(
+                                'No batch generated yet',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  _buildTableHeader('#', flex: 1),
-                                  _buildTableHeader('TAG ID', flex: 3),
-                                  _buildTableHeader('POLE NO.', flex: 3),
-                                  _buildTableHeader('STATUS', flex: 3),
-                                  _buildTableHeader('REMARKS', flex: 3),
-                                  const SizedBox(
-                                    width: 140,
-                                    child: Text(
-                                      'ACTION',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black54,
-                                        letterSpacing: 0.5,
-                                      ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ─── Table ──────────────────────────────────────────
+                      if (_isLoadingBatch)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(40),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      else if (_currentBatchTags != null &&
+                          _currentBatchTags!.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Table Header
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: Colors.grey[300]!,
                                     ),
                                   ),
-                                ],
+                                ),
+                                child: Row(
+                                  children: [
+                                    _buildTableHeader('#', flex: 1),
+                                    _buildTableHeader('TAG ID', flex: 3),
+                                    _buildTableHeader('POLE NO.', flex: 3),
+                                    _buildTableHeader('STATUS', flex: 3),
+                                    _buildTableHeader('REMARKS', flex: 3),
+                                    const SizedBox(
+                                      width: 140,
+                                      child: Text(
+                                        'ACTION',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black54,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            // Table Rows
-                            Column(
-                              children:
-                                  currentBatchTags.asMap().entries.map((entry) {
+                              // Table Rows - FROM API
+                              ..._currentBatchTags!
+                                  .asMap()
+                                  .entries
+                                  .map((entry) {
                                 final index = entry.key;
                                 final tag = entry.value;
                                 return Container(
@@ -425,47 +401,40 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                   child: Row(
                                     children: [
                                       _buildTableCell('${index + 1}', flex: 1),
-                                      _buildTableCell(tag['tagId']!,
+                                      _buildTableCell(tag.tagCode,
                                           flex: 3, isBold: true),
-                                      _buildTableCell(tag['poleNo']!, flex: 3),
-                                      _buildTableCell(tag['status']!,
-                                          flex: 3, isStatus: true),
-                                      _buildTableCell(tag['remarks']!, flex: 3),
-                                      _buildActionButton(),
+                                      _buildTableCell(tag.poleNo, flex: 3),
+                                      Expanded(
+                                        flex: 3,
+                                        child: _buildStatusPill(tag.status),
+                                      ),
+                                      _buildTableCell(tag.remarks ?? '—',
+                                          flex: 3),
+                                      _buildActionButton(tag),
                                     ],
                                   ),
                                 );
                               }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Showing 1-12 of 24 - page 1 of 2',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          Row(
-                            children: [
-                              Icon(Icons.chevron_left, color: Colors.grey),
-                              SizedBox(width: 8),
-                              Icon(Icons.chevron_right, color: Colors.grey),
                             ],
                           ),
-                        ],
-                      ),
+                        )
+                      else
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(40),
+                            child: Text(
+                              'No tags in this batch',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
 
                 const SizedBox(height: 16),
 
+                // Footer note
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -561,14 +530,15 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                           if (du != null) {
                             setState(() {
                               _selectedDU = du;
-                              _selectedWorkOrder =
-                                  null; // ✅ ADD THIS - Reset work order selection
+                              _selectedWorkOrder = null;
                             });
                             ref.read(duProvider.notifier).selectDU(du);
-                            // ✅ ADD THIS - Load work orders for this DU
                             ref
                                 .read(workOrderProvider.notifier)
                                 .loadWorkOrdersForDU(du.duId);
+
+                            // ✅ Load latest batch for this DU
+                            _loadLatestBatchForDU(du.duId);
                           }
                         },
                       ),
@@ -636,8 +606,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                           if (wo != null) {
                             setState(() {
                               _selectedWorkOrder = wo;
-                              _selectedWorkOrderId = wo
-                                  .workOrderCode; // Keep for backward compatibility
+                              _selectedWorkOrderId = wo.workOrderCode;
                             });
                             ref
                                 .read(workOrderProvider.notifier)
@@ -721,6 +690,39 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     );
   }
 
+  // ─── Load Latest Batch ──────────────────────────────────────────
+
+  Future<void> _loadLatestBatchForDU(int duId) async {
+    try {
+      final batch = await ref.read(apiProvider).getLatestBatchForDU(duId);
+      if (batch != null && mounted) {
+        setState(() {
+          _currentBatch = batch;
+        });
+        // Load the tags for this batch
+        await _loadCurrentBatch(batch.batchId);
+      } else {
+        // No batch found - clear current batch
+        if (mounted) {
+          setState(() {
+            _currentBatch = null;
+            _currentBatchTags = null;
+          });
+        }
+      }
+    } catch (e) {
+      // No batch found - that's fine, show empty state
+      if (mounted) {
+        setState(() {
+          _currentBatch = null;
+          _currentBatchTags = null;
+        });
+      }
+    }
+  }
+
+  // ─── Generate Batch ──────────────────────────────────────────────
+
   Future<void> _generateBatch() async {
     // ─── Validation ──────────────────────────────────────────────
     if (_selectedDU == null) {
@@ -747,7 +749,6 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
             duId: _selectedDU!.duId,
             workOrderId: _selectedWorkOrder!.workOrderId,
             quantity: _quantity,
-            // assignedTo: null, // Optional: assign to current user or crew
           );
 
       // ─── Success ───────────────────────────────────────────────
@@ -759,28 +760,136 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           ),
         );
 
-        // ─── Refresh BATCH ID preview ───────────────────────────
-        // Reload next batch code after creation
-        await ref.read(duProvider.notifier).loadNextBatchCode(_selectedDU!);
+        // ─── Load the batch tags ────────────────────────────────
+        await _loadCurrentBatch(batch.batchId);
 
-        // TODO: Reset form or show the new batch
-        // setState(() {
-        //   _selectedWorkOrder = null;
-        //   _quantity = 24;
-        // });
+        // ─── Set current batch ───────────────────────────────────
+        setState(() {
+          _currentBatch = batch;
+        });
+
+        // ─── Refresh BATCH ID preview ───────────────────────────
+        await ref.read(duProvider.notifier).loadNextBatchCode(_selectedDU!);
       }
     } catch (e) {
-      // ─── Error ─────────────────────────────────────────────────
       if (mounted) {
         _showError(e.toString());
       }
     } finally {
-      // ─── Done Loading ──────────────────────────────────────────
       if (mounted) {
         setState(() => _isGenerating = false);
       }
     }
   }
+
+  // ─── Load Current Batch ─────────────────────────────────────────
+
+  Future<void> _loadCurrentBatch(int batchId) async {
+    setState(() => _isLoadingBatch = true);
+
+    try {
+      final tags = await ref.read(apiProvider).getBatchTags(batchId);
+      if (mounted) {
+        setState(() {
+          _currentBatchTags = tags;
+          _isLoadingBatch = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingBatch = false);
+        _showError('Failed to load batch tags: $e');
+      }
+    }
+  }
+
+  // ─── Status Pill ─────────────────────────────────────────────────
+
+  Widget _buildStatusPill(String status) {
+    Color color;
+    switch (status.toLowerCase()) {
+      case 'available':
+        color = Colors.green;
+        break;
+      case 'printed':
+        color = Colors.blue;
+        break;
+      case 'dispatched':
+        color = Colors.orange;
+        break;
+      case 'installed':
+        color = Colors.purple;
+        break;
+      case 'lost':
+        color = Colors.red;
+        break;
+      case 'damaged':
+        color = Colors.red;
+        break;
+      default:
+        color = Colors.grey;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  // ─── Action Button ───────────────────────────────────────────────
+
+  Widget _buildActionButton(Tag tag) {
+    return SizedBox(
+      width: 140,
+      child: TextButton(
+        onPressed: () {
+          _showStatusPicker(tag);
+        },
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          backgroundColor: Colors.blue[50],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+          ),
+          minimumSize: const Size(80, 32),
+        ),
+        child: Text(
+          'Edit status',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.blue[700],
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Status Picker ──────────────────────────────────────────────
+
+  void _showStatusPicker(Tag tag) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _StatusPickerSheet(tag: tag),
+    );
+  }
+
+  // ─── Error Handler ──────────────────────────────────────────────
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -790,6 +899,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       ),
     );
   }
+
+  // ─── Stat Card ──────────────────────────────────────────────────
 
   Widget _buildStatCard(
     String label,
@@ -858,6 +969,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     );
   }
 
+  // ─── Table Helpers ──────────────────────────────────────────────
+
   Widget _buildTableHeader(String text, {int flex = 1}) {
     return Expanded(
       flex: flex,
@@ -891,28 +1004,139 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       ),
     );
   }
+}
 
-  Widget _buildActionButton() {
-    return SizedBox(
-      width: 140,
-      child: TextButton(
-        onPressed: () {},
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          backgroundColor: Colors.blue[50],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
+// ============================================================
+// STATUS PICKER SHEET
+// ============================================================
+
+class _StatusPickerSheet extends ConsumerStatefulWidget {
+  final Tag tag;
+  const _StatusPickerSheet({required this.tag});
+
+  @override
+  ConsumerState<_StatusPickerSheet> createState() => _StatusPickerSheetState();
+}
+
+class _StatusPickerSheetState extends ConsumerState<_StatusPickerSheet> {
+  String _selectedStatus = '';
+  bool _isUpdating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedStatus = widget.tag.status;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statuses = [
+      'Available',
+      'Printed',
+      'Dispatched',
+      'Installed',
+      'Lost',
+      'Damaged'
+    ];
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        left: 20,
+        right: 20,
+        top: 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Update Status',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          minimumSize: const Size(80, 32),
-        ),
-        child: Text(
-          'Edit status',
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.blue[700],
-            fontWeight: FontWeight.w500,
+          const SizedBox(height: 8),
+          Text(
+            'Tag: ${widget.tag.tagCode}',
+            style: const TextStyle(color: Colors.grey),
           ),
-        ),
+          const SizedBox(height: 16),
+          ...statuses.map((status) {
+            return RadioListTile<String>(
+              title: Text(status),
+              value: status,
+              groupValue: _selectedStatus,
+              onChanged: _isUpdating
+                  ? null
+                  : (value) {
+                      setState(() => _selectedStatus = value!);
+                    },
+            );
+          }),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: _isUpdating ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isUpdating
+                      ? null
+                      : () async {
+                          setState(() => _isUpdating = true);
+
+                          try {
+                            // TODO: Call API to update tag status
+                            // await ref.read(apiProvider).updateTagStatus(
+                            //   widget.tag.tagId,
+                            //   _selectedStatus,
+                            // );
+
+                            // Simulate API call
+                            await Future.delayed(const Duration(seconds: 1));
+
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content:
+                                      Text('✅ Status updated successfully!'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                              Navigator.pop(context);
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content:
+                                      Text('❌ Failed to update status: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isUpdating = false);
+                            }
+                          }
+                        },
+                  child: _isUpdating
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Update Status'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
