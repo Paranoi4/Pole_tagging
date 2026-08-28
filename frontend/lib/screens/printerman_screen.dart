@@ -8,6 +8,7 @@ import 'package:frontend/providers/du_provider.dart';
 import 'package:frontend/models/du.dart';
 import 'package:frontend/providers/work_order_provider.dart';
 import 'package:frontend/models/work_order.dart';
+import 'package:frontend/providers/batch_provider.dart';
 
 class PrinterManScreen extends ConsumerStatefulWidget {
   final bool showDispatcherShortcut;
@@ -116,6 +117,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   Widget build(BuildContext context) {
     final duState = ref.watch(duProvider);
     final workOrderState = ref.watch(workOrderProvider); // ✅ ADD THIS
+    final batchState = ref.watch(batchProvider); // ✅ ADD THIS
 
     // Sync selected DU with provider state
     if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
@@ -273,7 +275,9 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                         child: SizedBox(
                           width: 160,
                           child: ElevatedButton(
-                            onPressed: _isGenerating || duState.isLoading
+                            onPressed: _isGenerating ||
+                                    duState.isLoading ||
+                                    workOrderState.isLoading
                                 ? null
                                 : _generateBatch,
                             style: ElevatedButton.styleFrom(
@@ -718,12 +722,13 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   }
 
   Future<void> _generateBatch() async {
+    // ─── Validation ──────────────────────────────────────────────
     if (_selectedDU == null) {
       _showError('Please select a DU');
       return;
     }
 
-    if (_selectedWorkOrderId == null) {
+    if (_selectedWorkOrder == null) {
       _showError('Please select a Work Order');
       return;
     }
@@ -733,25 +738,44 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       return;
     }
 
+    // ─── Start Loading ───────────────────────────────────────────
     setState(() => _isGenerating = true);
 
     try {
-      // TODO: Call API to create batch
-      await Future.delayed(const Duration(seconds: 1));
+      // ─── Call API to create batch ─────────────────────────────
+      final batch = await ref.read(batchProvider.notifier).createBatch(
+            duId: _selectedDU!.duId,
+            workOrderId: _selectedWorkOrder!.workOrderId,
+            quantity: _quantity,
+            // assignedTo: null, // Optional: assign to current user or crew
+          );
 
+      // ─── Success ───────────────────────────────────────────────
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Batch generated successfully!'),
+          SnackBar(
+            content: Text('✅ Batch ${batch.batchCode} created successfully!'),
             backgroundColor: Colors.green,
           ),
         );
+
+        // ─── Refresh BATCH ID preview ───────────────────────────
+        // Reload next batch code after creation
+        await ref.read(duProvider.notifier).loadNextBatchCode(_selectedDU!);
+
+        // TODO: Reset form or show the new batch
+        // setState(() {
+        //   _selectedWorkOrder = null;
+        //   _quantity = 24;
+        // });
       }
     } catch (e) {
+      // ─── Error ─────────────────────────────────────────────────
       if (mounted) {
         _showError(e.toString());
       }
     } finally {
+      // ─── Done Loading ──────────────────────────────────────────
       if (mounted) {
         setState(() => _isGenerating = false);
       }

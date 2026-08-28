@@ -412,4 +412,32 @@ class ApiService {
       );
     }
   }
+
+  Future<Batch> createBatch({
+    required int duId,
+    required int workOrderId,
+    required int quantity,
+    int? assignedTo,
+  }) async {
+    final response = await _send(() => http.post(
+          Uri.parse('$baseUrl/batches'),
+          headers: _authJsonHeaders,
+          body: jsonEncode({
+            'du_id': duId,
+            'work_order_id': workOrderId,
+            'quantity': quantity,
+            'assigned_to': assignedTo,
+          }),
+        ));
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return Batch.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to create batch: ${response.statusCode}',
+      );
+    }
+  }
 }
