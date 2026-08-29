@@ -27,11 +27,11 @@ def create_user(
     # Check if username exists
     if db.query(models.User).filter(models.User.username == user.username).first():
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+
     # Check if email exists
     if db.query(models.User).filter(models.User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
-    
+
     # Reject unknown roles before creating anything, so we never leave a user
     # behind after a failed assignment.
     role_ids = list(dict.fromkeys(user.role_ids))
@@ -51,12 +51,17 @@ def create_user(
         username=user.username,
         password=get_password_hash(user.password),
         auth_provider="local",
+        org_code=user.org_code,
     )
     db.add(db_user)
     db.flush()  # assigns user_id without committing yet
 
     for role_id in role_ids:
-        db.add(models.UserRole(user_id=db_user.user_id, role_id=role_id))
+        db.add(models.UserRole(
+            user_id=db_user.user_id,
+            role_id=role_id,
+            org_code=user.org_code,
+        ))
 
     # Single commit, so the user and their roles save together or not at all.
     db.commit()
@@ -74,26 +79,36 @@ def create_user(
 # be able to pull just by being logged in.
 @router.get("", response_model=List[schemas.UserOut], dependencies=[Depends(require_role("Admin"))])
 def list_users(
-    skip: int = Query(0, ge=0, description="Number of users to skip"),
-    limit: int = Query(10, ge=1, le=100, description="Number of users to return (max 100)"),
-    db: Session = Depends(get_db)
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
-    users = db.query(models.User).offset(skip).limit(limit).all()
+    """Admin sees ONLY users from their organization."""
+    users = db.query(models.User).filter(
+        models.User.org_code == current_user.org_code
+    ).offset(skip).limit(limit).all()
     
-    # ✅ Convert each user using model_validate
     return [schemas.UserOut.model_validate(user) for user in users]
 
 
 # ============================================
 # GET USER BY ID
 # ============================================
-@router.get("/{user_id}", response_model=schemas.UserOut)
-def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.get(models.User, user_id)
+@router.get("/{user_id}", response_model=schemas.UserOut, dependencies=[Depends(require_role("Admin"))])
+def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Admin can ONLY get users from their organization."""
+    user = db.query(models.User).filter(
+        models.User.user_id == user_id,
+        models.User.org_code == current_user.org_code
+    ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # ✅ ONE LINE instead of 14!
     return schemas.UserOut.model_validate(user)
 
 

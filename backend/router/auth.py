@@ -176,6 +176,7 @@ def google_callback(code: str, db: Session = Depends(get_db)):
             password=get_password_hash("google-oauth-user"),
             auth_provider="google",
             google_id=google_user.get("sub"),
+            org_code="NP", 
         )
         db.add(user)
         db.commit()
@@ -196,6 +197,8 @@ def google_callback(code: str, db: Session = Depends(get_db)):
     return RedirectResponse(redirect_url)
 
 # ===== REGISTER =====
+# router/auth.py
+
 @router.post("/register", response_model=schemas.UserOut)
 def register(
     user: schemas.UserCreate,
@@ -207,6 +210,7 @@ def register(
     if db.query(models.User).filter(models.User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
     
+    # Create user
     db_user = models.User(
         first_name=user.first_name,
         last_name=user.last_name,
@@ -217,8 +221,25 @@ def register(
         username=user.username,
         password=get_password_hash(user.password),
         auth_provider="local",
+        org_code=user.org_code,  # ✅ ADD THIS
     )
     db.add(db_user)
+    db.flush()
+    
+    # ✅ AUTO-ASSIGN ROLE: Give user the "Admin" role
+    # Find the Admin role for this org
+    admin_role = db.query(models.Role).filter(
+        models.Role.role_name == "Admin",
+        models.Role.org_code == user.org_code
+    ).first()
+    
+    if admin_role:
+        db.add(models.UserRole(
+            user_id=db_user.user_id,
+            role_id=admin_role.role_id,
+            org_code=user.org_code
+        ))
+    
     db.commit()
     db.refresh(db_user)
     

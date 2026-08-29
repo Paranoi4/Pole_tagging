@@ -12,9 +12,6 @@ engine = create_engine(
     connect_args={"options": "-csearch_path=public"},
 )
 
-with engine.begin() as connection:
-    connection.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS pole_tagging")
-
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

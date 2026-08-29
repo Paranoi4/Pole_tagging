@@ -20,14 +20,23 @@ router = APIRouter(
 @router.post("", response_model=schemas.UserRoleOut, dependencies=[Depends(require_role("Admin"))])
 def assign_role_to_user(
     payload: schemas.UserRoleCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
 ):
-    # Check if user exists
-    if not db.get(models.User, payload.user_id):
+    # Check if user exists AND belongs to same org
+    user = db.query(models.User).filter(
+        models.User.user_id == payload.user_id,
+        models.User.org_code == current_user.org_code  # ✅ ADD THIS
+    ).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Check if role exists
-    if not db.get(models.Role, payload.role_id):
+    # Check if role exists AND belongs to same org
+    role = db.query(models.Role).filter(
+        models.Role.role_id == payload.role_id,
+        models.Role.org_code == current_user.org_code  # ✅ ADD THIS
+    ).first()
+    if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     
     # Check if already assigned
@@ -38,7 +47,10 @@ def assign_role_to_user(
     if existing:
         raise HTTPException(status_code=400, detail="Role already assigned to user")
     
-    db_user_role = models.UserRole(**payload.model_dump())
+    db_user_role = models.UserRole(
+        **payload.model_dump(),
+        org_code=current_user.org_code  # ✅ ADD THIS
+    )
     db.add(db_user_role)
     db.commit()
     db.refresh(db_user_role)
@@ -55,11 +67,14 @@ def assign_role_to_user(
 def remove_role_by_ids(
     user_id: int,
     role_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
+    """Admin can ONLY remove roles from users in their organization."""
     user_role = db.query(models.UserRole).filter(
         models.UserRole.user_id == user_id,
-        models.UserRole.role_id == role_id
+        models.UserRole.role_id == role_id,
+        models.UserRole.org_code == current_user.org_code
     ).first()
     if not user_role:
         raise HTTPException(status_code=404, detail="User role assignment not found")

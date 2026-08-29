@@ -40,12 +40,23 @@ def create_work_order(
 ):
     """Create a new Work Order. Code is auto-generated."""
     
-    # Check if DU exists
-    du = db.get(models.DistributionUtility, work_order.du_id)
-    if not du or not du.is_active:
-        raise HTTPException(status_code=404, detail="DU not found or inactive")
+    # ============================================================
+    # 1. Check if DU exists AND belongs to user's organization
+    # ============================================================
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == work_order.du_id,
+        models.DistributionUtility.org_code == current_user.org_code  # ✅ org_code check
+    ).first()
     
-    # Auto-generate work order code
+    if not du or not du.is_active:
+        raise HTTPException(
+            status_code=404, 
+            detail="DU not found or inactive in your organization"
+        )
+    
+    # ============================================================
+    # 2. Auto-generate work order code
+    # ============================================================
     work_order_code = generate_work_order_code(du.du_code, db)
     
     # Check if code already exists (shouldn't happen with unique generation)
@@ -54,12 +65,16 @@ def create_work_order(
     ).first():
         raise HTTPException(status_code=400, detail="Work Order code already exists")
     
+    # ============================================================
+    # 3. Create work order with org_code
+    # ============================================================
     db_work_order = models.WorkOrder(
         du_id=work_order.du_id,
         work_order_name=work_order.work_order_name,
-        work_order_code=work_order_code,  # ← AUTO-GENERATED!
+        work_order_code=work_order_code,
         description=work_order.description,
         created_by=current_user.user_id,
+        org_code=current_user.org_code,  # ✅ ADD THIS
     )
     db.add(db_work_order)
     db.commit()
@@ -80,12 +95,14 @@ def list_work_orders(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """List all Work Orders."""
-    query = db.query(models.WorkOrder)
-    
+    """List all Work Orders for the current org."""
+    query = db.query(models.WorkOrder).filter(
+        models.WorkOrder.org_code == current_user.org_code
+    )
+
     if du_id:
         query = query.filter(models.WorkOrder.du_id == du_id)
-    
+
     items = query.order_by(models.WorkOrder.created_at.desc()).offset(skip).limit(limit).all()
     return items
 
@@ -101,7 +118,10 @@ def get_work_order(
     current_user: models.User = Depends(get_current_user),
 ):
     """Get a single Work Order by ID."""
-    work_order = db.get(models.WorkOrder, work_order_id)
+    work_order = db.query(models.WorkOrder).filter(
+        models.WorkOrder.work_order_id == work_order_id,
+        models.WorkOrder.org_code == current_user.org_code,
+    ).first()
     if not work_order:
         raise HTTPException(status_code=404, detail="Work Order not found")
     return work_order

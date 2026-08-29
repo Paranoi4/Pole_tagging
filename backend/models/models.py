@@ -10,6 +10,7 @@ class Role(Base):
     role_id = Column(Integer, primary_key=True, index=True)
     role_name = Column(String(100), nullable=False, unique=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
 
     user_roles = relationship(
         "UserRole",
@@ -28,6 +29,7 @@ class DistributionUtility(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
     
     creator = relationship("User", foreign_keys=[created_by])
     tags = relationship("Tag", back_populates="du", cascade="all, delete-orphan")
@@ -55,7 +57,7 @@ class User(Base):
 
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime, nullable=True)
-
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
     user_roles = relationship(
         "UserRole",
         back_populates="user",
@@ -74,7 +76,7 @@ class UserRole(Base):
     user_role_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     role_id = Column(Integer, ForeignKey("roles.role_id", ondelete="CASCADE"), nullable=False)
-
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
     user = relationship("User", back_populates="user_roles")
     role = relationship("Role", back_populates="user_roles")
 
@@ -93,7 +95,7 @@ class Tag(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     updated_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
-
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
     du = relationship("DistributionUtility", back_populates="tags")
     batch = relationship("Batch", back_populates="tags")
     creator = relationship("User", foreign_keys=[created_by])
@@ -127,7 +129,7 @@ class Batch(Base):
     assigned_to = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
-
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
     du = relationship("DistributionUtility", back_populates="batches")
     work_order = relationship("WorkOrder", back_populates="batches")
     tags = relationship("Tag", back_populates="batch")
@@ -153,7 +155,7 @@ class WorkOrder(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
-
+    org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
     du = relationship("DistributionUtility", back_populates="work_orders")
     creator = relationship("User", foreign_keys=[created_by])
     batches = relationship("Batch", back_populates="work_order")

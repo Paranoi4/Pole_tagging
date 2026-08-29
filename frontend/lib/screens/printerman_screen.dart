@@ -40,10 +40,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(duProvider.notifier).loadDUs().then((_) {
-        // After DUs are loaded, load the latest batch
         final duState = ref.read(duProvider);
         if (duState.selectedDU != null) {
           _loadLatestBatchForDU(duState.selectedDU!.duId);
+          ref
+              .read(workOrderProvider.notifier)
+              .loadWorkOrdersForDU(duState.selectedDU!.duId);
         }
       });
     });
@@ -58,9 +60,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     // Sync selected DU with provider state
     if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
       _selectedDU = duState.selectedDU;
-      // Load latest batch when DU changes
+      // Load related data when DU changes
       if (_selectedDU != null) {
         _loadLatestBatchForDU(_selectedDU!.duId);
+        ref
+            .read(workOrderProvider.notifier)
+            .loadWorkOrdersForDU(_selectedDU!.duId);
       }
     }
 

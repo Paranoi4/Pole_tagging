@@ -85,13 +85,14 @@ def decode_tag_code(tag_code: str) -> int:
 # TAG GENERATION (WITH DU PREFIX)
 # ============================================================
 
-def generate_all_tags_for_du(du_id: int, du_code: str) -> List[Dict]:
+def generate_all_tags_for_du(du_id: int, du_code: str, org_code: str) -> List[Dict]:
     """
     Generate ALL 1,048,575 tags for a DU with DU code as prefix.
     
     Args:
         du_id: DU ID to associate tags with
         du_code: DU code prefix (e.g., "N", "B", etc.)
+        org_code: Organization code for the tag records
     
     Returns:
         List of 1,048,575 tag dictionaries ready for bulk insert
@@ -124,6 +125,7 @@ def generate_all_tags_for_du(du_id: int, du_code: str) -> List[Dict]:
             'status': 'Available',
             'remarks': None,
             'created_at': datetime.utcnow(),
+            'org_code': org_code,
         })
         pole_no += 1
         
@@ -135,7 +137,7 @@ def generate_all_tags_for_du(du_id: int, du_code: str) -> List[Dict]:
     return tags
 
 
-def generate_tags_batch(du_id: int, du_code: str, start_pole: int, count: int) -> List[Dict]:
+def generate_tags_batch(du_id: int, du_code: str, start_pole: int, count: int, org_code: str) -> List[Dict]:
     """
     Generate a batch of tags for a DU.
     
@@ -144,6 +146,7 @@ def generate_tags_batch(du_id: int, du_code: str, start_pole: int, count: int) -
         du_code: DU code prefix
         start_pole: Starting pole number
         count: Number of tags to generate
+        org_code: Organization code for the tag records
     
     Returns:
         List of tag dictionaries
@@ -162,6 +165,7 @@ def generate_tags_batch(du_id: int, du_code: str, start_pole: int, count: int) -
             'pole_no': str(start_pole + generated),
             'status': 'Available',
             'created_at': datetime.utcnow(),
+            'org_code': org_code,
         })
         generated += 1
         pole_num += 1

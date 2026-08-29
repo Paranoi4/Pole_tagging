@@ -3,19 +3,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.database import engine, Base, get_db
 import models.models as models
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
+# ============================================================
+# CREATE MISSING TABLES ONLY
+# ============================================================
+# print("Creating any missing tables...")
+# Base.metadata.create_all(bind=engine)
+# print("✅ Tables ready")
+# ============================================================
 
 # ===== SEED FIXED ROLES =====
 def seed_roles():
     db = next(get_db())
     try:
-        existing = {r.role_name for r in db.query(models.Role).all()}
-        for role_name in ("Admin", "Printerman", "Dispatcher"):
-            if role_name not in existing:
-                db.add(models.Role(role_name=role_name))
+        orgs = ["NP", "BP", "MP"]
+        for org in orgs:
+            for role_name in ("Admin", "Printerman", "Dispatcher"):
+                existing = db.query(models.Role).filter(
+                    models.Role.role_name == role_name,
+                    models.Role.org_code == org
+                ).first()
+                if not existing:
+                    db.add(models.Role(role_name=role_name, org_code=org))
         db.commit()
+        print("✅ Roles seeded successfully!")
+    except Exception as e:
+        print(f"⚠️ Error seeding roles: {e}")
+        db.rollback()
     finally:
         db.close()
 
@@ -46,4 +59,4 @@ app.include_router(user_roles.router)
 app.include_router(du.router)
 app.include_router(tags.router)
 app.include_router(batches.router)
-app.include_router(work_orders.router)  # ← NEW!
+app.include_router(work_orders.router)

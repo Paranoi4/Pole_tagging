@@ -43,6 +43,7 @@ def create_du(
         du_name=du.du_name,
         du_code=du.du_code,
         created_by=current_user.user_id,
+        org_code=du.org_code,  # ✅ USE PROVIDED ORG CODE
     )
     db.add(db_du)
     db.flush()  # Get du_id without committing
@@ -50,7 +51,7 @@ def create_du(
     # ============================================================
     # 🔥 AUTO-GENERATE ALL 1,048,575 TAGS WITH DU PREFIX
     # ============================================================
-    tags = generate_all_tags_for_du(db_du.du_id, db_du.du_code)
+    tags = generate_all_tags_for_du(db_du.du_id, db_du.du_code, du.org_code)
     db.bulk_insert_mappings(models.Tag, tags)
     # ============================================================
     
@@ -77,8 +78,10 @@ def list_dus(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """List all Distribution Utilities."""
     query = db.query(models.DistributionUtility)
+    
+    # ✅ FILTER by org_code
+    query = query.filter(models.DistributionUtility.org_code == current_user.org_code)
     
     if not include_inactive:
         query = query.filter(models.DistributionUtility.is_active == True)
@@ -105,7 +108,10 @@ def get_du(
     current_user: models.User = Depends(get_current_user),
 ):
     """Get a single DU by ID."""
-    du = db.get(models.DistributionUtility, du_id)
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code
+    ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     return du
@@ -122,11 +128,17 @@ def get_du_with_stats(
     current_user: models.User = Depends(get_current_user),
 ):
     """Get DU with tag statistics."""
-    du = db.get(models.DistributionUtility, du_id)
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code
+    ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     
-    total = db.query(models.Tag).filter(models.Tag.du_id == du_id).count()
+    total = db.query(models.Tag).filter(
+        models.Tag.du_id == du_id,
+        models.Tag.org_code == current_user.org_code,
+    ).count()
     available = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
         models.Tag.status == "Available"

@@ -22,18 +22,21 @@ def get_available_tags(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Get available tags for a DU."""
-    du = db.get(models.DistributionUtility, du_id)
+    # ✅ Check if DU belongs to user's org
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code
+    ).first()
     if not du or not du.is_active:
         raise HTTPException(status_code=404, detail="DU not found or inactive")
     
     tags = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Available"
+        models.Tag.status == "Available",
+        models.Tag.org_code == current_user.org_code  # ✅ ADD THIS
     ).limit(limit).all()
     
     return tags
-
 
 # ============================================================
 # 2. UPDATE TAG STATUS (Print / Dispatch)
@@ -46,17 +49,19 @@ def update_tag_status(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Update a tag's status."""
     tag = db.get(models.Tag, tag_id)
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
+    
+    # ✅ Check if tag belongs to user's org
+    if tag.org_code != current_user.org_code:
+        raise HTTPException(status_code=403, detail="You don't have access to this tag")
     
     tag.status = status
     tag.updated_by = current_user.user_id
     tag.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(tag)
-    
     return tag
 
 

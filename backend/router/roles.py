@@ -21,11 +21,21 @@ router = APIRouter(
 # "create role" UI, so this being open to any user was pure risk with no
 # legitimate use from the frontend.
 @router.post("", response_model=schemas.RoleOut, dependencies=[Depends(require_role("Admin"))])
-def create_role(role: schemas.RoleCreate, db: Session = Depends(get_db)):
-    if db.query(models.Role).filter(models.Role.role_name == role.role_name).first():
+def create_role(
+    role: schemas.RoleCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
+):
+    if db.query(models.Role).filter(
+        models.Role.role_name == role.role_name,
+        models.Role.org_code == current_user.org_code  # ✅ ADD THIS
+    ).first():
         raise HTTPException(status_code=400, detail="Role already exists")
     
-    db_role = models.Role(**role.model_dump())
+    db_role = models.Role(
+        **role.model_dump(),
+        org_code=current_user.org_code  # ✅ ADD THIS
+    )
     db.add(db_role)
     db.commit()
     db.refresh(db_role)
@@ -37,15 +47,27 @@ def create_role(role: schemas.RoleCreate, db: Session = Depends(get_db)):
 def list_roles(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
 ):
-    return db.query(models.Role).offset(skip).limit(limit).all()
+    # ✅ Filter by org_code
+    return db.query(models.Role).filter(
+        models.Role.org_code == current_user.org_code
+    ).offset(skip).limit(limit).all()
 
 
 # ===== GET ROLE BY ID =====
 @router.get("/{role_id}", response_model=schemas.RoleOut, dependencies=[Depends(require_role("Admin"))])
-def get_role(role_id: int, db: Session = Depends(get_db)):
-    role = db.get(models.Role, role_id)
+def get_role(
+    role_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Admin can ONLY get roles from their organization."""
+    role = db.query(models.Role).filter(
+        models.Role.role_id == role_id,
+        models.Role.org_code == current_user.org_code
+    ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     return role
