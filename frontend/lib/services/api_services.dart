@@ -481,4 +481,55 @@ class ApiService {
       );
     }
   }
+
+  /// Update batch status
+  Future<Batch> updateBatchStatus(int batchId, String status) async {
+    final response = await _send(() => http.patch(
+          Uri.parse('$baseUrl/batches/$batchId/status?status=$status'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      return Batch.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to update batch status: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Bulk update tag status for a batch (all tags in batch → Printed)
+  Future<void> bulkUpdateTagStatusForBatch(int batchId, String status) async {
+    // First get all tags in the batch
+    final tags = await getBatchTags(batchId);
+
+    // Update each tag's status
+    for (final tag in tags) {
+      await _send(() => http.patch(
+            Uri.parse('$baseUrl/tags/${tag.tagId}/status?status=$status'),
+            headers: _authHeaders,
+          ));
+    }
+  }
+  // lib/services/api_services.dart
+
+  /// Update a single tag's status
+  Future<Tag> updateTagStatus(int tagId, String status) async {
+    final response = await _send(() => http.patch(
+          Uri.parse('$baseUrl/tags/$tagId/status?status=$status'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      return Tag.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to update tag status: ${response.statusCode}',
+      );
+    }
+  }
 }

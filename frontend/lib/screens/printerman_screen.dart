@@ -70,6 +70,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       _selectedWorkOrder = workOrderState.selectedWorkOrder;
     }
 
+    // Check if batch is in Pending status (ready to print)
+    final bool canPrint = _currentBatch != null &&
+        _currentBatch!.status.toLowerCase() == 'pending' &&
+        _currentBatchTags != null &&
+        _currentBatchTags!.isNotEmpty;
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -250,7 +256,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                 const SizedBox(height: 32),
 
                 // ============================================================
-                // CURRENT BATCH - WITH REAL DATA
+                // CURRENT BATCH - WITH PRINT BUTTON
                 // ============================================================
                 Container(
                   padding: const EdgeInsets.all(24),
@@ -287,15 +293,26 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.green[50],
+                                color: _currentBatch!.status.toLowerCase() ==
+                                        'pending'
+                                    ? Colors.orange[50]
+                                    : Colors.green[50],
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.green[200]!),
+                                border: Border.all(
+                                  color: _currentBatch!.status.toLowerCase() ==
+                                          'pending'
+                                      ? Colors.orange[200]!
+                                      : Colors.green[200]!,
+                                ),
                               ),
                               child: Text(
                                 '${_currentBatch!.batchCode} - ${_currentBatch!.quantity} tags - ${_currentBatch!.status}',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.green[800],
+                                  color: _currentBatch!.status.toLowerCase() ==
+                                          'pending'
+                                      ? Colors.orange[800]
+                                      : Colors.green[800],
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -317,6 +334,26 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                   fontSize: 13,
                                   color: Colors.grey[600],
                                   fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          const Spacer(),
+                          // ✅ PRINT TAGS BUTTON
+                          if (canPrint)
+                            ElevatedButton.icon(
+                              onPressed: () => _showPrintModal(
+                                  _currentBatch!, _currentBatchTags!),
+                              icon: const Icon(Icons.print, size: 18),
+                              label: const Text('Print tags'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1A7A3D),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
                             ),
@@ -362,10 +399,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                     _buildTableHeader('#', flex: 1),
                                     _buildTableHeader('TAG ID', flex: 3),
                                     _buildTableHeader('POLE NO.', flex: 3),
-                                    _buildTableHeader('STATUS', flex: 3),
-                                    _buildTableHeader('REMARKS', flex: 3),
+                                    _buildTableHeader('STATUS',
+                                        flex: 2), // ← Reduced from 3 to 2
+                                    _buildTableHeader('REMARKS',
+                                        flex: 2), // ← Reduced from 3 to 2
                                     const SizedBox(
-                                      width: 140,
+                                      width: 120, // ← Reduced from 140 to 120
                                       child: Text(
                                         'ACTION',
                                         style: TextStyle(
@@ -405,11 +444,11 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                           flex: 3, isBold: true),
                                       _buildTableCell(tag.poleNo, flex: 3),
                                       Expanded(
-                                        flex: 3,
+                                        flex: 2,
                                         child: _buildStatusPill(tag.status),
                                       ),
                                       _buildTableCell(tag.remarks ?? '—',
-                                          flex: 3),
+                                          flex: 2),
                                       _buildActionButton(tag),
                                     ],
                                   ),
@@ -537,7 +576,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                 .read(workOrderProvider.notifier)
                                 .loadWorkOrdersForDU(du.duId);
 
-                            // ✅ Load latest batch for this DU
+                            // Load latest batch for this DU
                             _loadLatestBatchForDU(du.duId);
                           }
                         },
@@ -830,19 +869,22 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         color = Colors.grey;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: color,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Text(
+          status,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: color,
+          ),
         ),
       ),
     );
@@ -886,6 +928,27 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => _StatusPickerSheet(tag: tag),
+    );
+  }
+
+  // ─── Print Modal ─────────────────────────────────────────────────
+
+  void _showPrintModal(Batch batch, List<Tag> tags) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _PrintConfirmSheet(
+        batch: batch,
+        tags: tags,
+        onConfirm: () {
+          // Refresh the batch after printing
+          _loadCurrentBatch(batch.batchId);
+          _loadLatestBatchForDU(_selectedDU!.duId);
+        },
+      ),
     );
   }
 
@@ -1137,6 +1200,362 @@ class _StatusPickerSheetState extends ConsumerState<_StatusPickerSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// PRINT CONFIRM SHEET
+// ============================================================
+
+class _PrintConfirmSheet extends ConsumerStatefulWidget {
+  final Batch batch;
+  final List<Tag> tags;
+  final VoidCallback onConfirm;
+
+  const _PrintConfirmSheet({
+    required this.batch,
+    required this.tags,
+    required this.onConfirm,
+  });
+
+  @override
+  ConsumerState<_PrintConfirmSheet> createState() => _PrintConfirmSheetState();
+}
+
+class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
+  bool _isPrinting = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final batch = widget.batch;
+    final tags = widget.tags;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        left: 20,
+        right: 20,
+        top: 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ─── Header ──────────────────────────────────────────────
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.print, color: Colors.blue[700]),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Review tags to print',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '${batch.batchCode} · ${tags.length} tag IDs queued',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ─── Tag Table ──────────────────────────────────────────
+          Container(
+            constraints: const BoxConstraints(maxHeight: 400),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Table Header
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(8),
+                      topRight: Radius.circular(8),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          'CODE',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          'POLE NO.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          'STATUS',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Table Rows
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: tags.map((tag) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(color: Colors.grey[200]!),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  tag.tagCode,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  tag.poleNo,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: _buildStatusPillSmall(tag.status),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ─── Footer Note ────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.orange[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange[200]!),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Colors.orange,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Tag IDs set to Do Not Use are skipped',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ─── Buttons ─────────────────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: _isPrinting ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isPrinting
+                      ? null
+                      : () async {
+                          setState(() => _isPrinting = true);
+
+                          try {
+                            // 1. Update all tags in batch to "Printed"
+                            for (final tag in tags) {
+                              await ref.read(apiProvider).updateTagStatus(
+                                    tag.tagId,
+                                    'Printed',
+                                  );
+                            }
+
+                            // 2. Update batch status to "Printed"
+                            await ref.read(apiProvider).updateBatchStatus(
+                                  batch.batchId,
+                                  'Printed',
+                                );
+
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    '✅ Tags printed successfully!',
+                                  ),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+
+                              // Refresh the batch
+                              widget.onConfirm();
+                              Navigator.pop(context);
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('❌ Failed to print: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isPrinting = false);
+                            }
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A7A3D),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: _isPrinting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Confirm print'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Small Status Pill ──────────────────────────────────────────
+
+  Widget _buildStatusPillSmall(String status) {
+    Color color;
+    switch (status.toLowerCase()) {
+      case 'available':
+        color = Colors.green;
+        break;
+      case 'printed':
+        color = Colors.blue;
+        break;
+      case 'dispatched':
+        color = Colors.orange;
+        break;
+      case 'installed':
+        color = Colors.purple;
+        break;
+      case 'lost':
+        color = Colors.red;
+        break;
+      case 'damaged':
+        color = Colors.red;
+        break;
+      default:
+        color = Colors.grey;
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Text(
+          status,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: color,
+          ),
+        ),
       ),
     );
   }

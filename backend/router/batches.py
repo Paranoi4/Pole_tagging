@@ -93,7 +93,7 @@ def create_batch(
     
     for tag in tags_to_assign:
         tag.batch_id = db_batch.batch_id
-        tag.status = "Printed"
+        # tag.status = "Printed"
         tag.updated_by = current_user.user_id
         tag.updated_at = datetime.utcnow()
     
