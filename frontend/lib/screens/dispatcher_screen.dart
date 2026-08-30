@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
+import 'package:frontend/models/batch.dart';
+import 'package:frontend/models/tag.dart';
+import 'package:frontend/providers/batch_provider.dart';
+import 'package:frontend/providers/api_providers.dart';
 
 class DispatcherScreen extends ConsumerStatefulWidget {
-  /// When true (the user also holds the Printerman role), an extra
-  /// app-bar icon is shown to jump back to the Printerman screen — mirrors
-  /// PrinterManScreen's showDispatcherShortcut for the reverse direction.
   final bool showPrintermanShortcut;
 
   const DispatcherScreen({super.key, this.showPrintermanShortcut = false});
@@ -18,38 +19,21 @@ class DispatcherScreen extends ConsumerStatefulWidget {
 }
 
 class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
-  // Hardcoded data
-  final List<Map<String, String>> printedBatches = const [
-    {
-      'batchId': 'BT-2026-0041',
-      'woRef': 'WO-2026-0118 · assigned to R. Villanueva',
-      'qty': '17',
-      'status': 'Ongoing',
-    },
-    {
-      'batchId': 'BT-2026-0042',
-      'woRef': 'WO-2026-0121 · unassigned',
-      'qty': '11',
-      'status': 'Available',
-    },
-  ];
-
-  final List<Map<String, String>> selectedBatchTags = const [
-    {'tagId': 'N31MJ', 'poleNo': '100018', 'status': 'Printed'},
-    {'tagId': 'B31MK', 'poleNo': '100019', 'status': 'Printed'},
-    {'tagId': 'N31ML', 'poleNo': '100020', 'status': 'Printed'},
-    {'tagId': 'N31MN', 'poleNo': '100022', 'status': 'Printed'},
-    {'tagId': 'N31MP', 'poleNo': '100023', 'status': 'Printed'},
-    {'tagId': 'M31MQ', 'poleNo': '100024', 'status': 'Printed'},
-    {'tagId': 'N31MR', 'poleNo': '100025', 'status': 'Printed'},
-    {'tagId': 'N31MS', 'poleNo': '100026', 'status': 'Printed'},
-    {'tagId': 'N31MT', 'poleNo': '100027', 'status': 'Printed'},
-    {'tagId': 'N31MU', 'poleNo': '100028', 'status': 'Printed'},
-    {'tagId': 'N31MV', 'poleNo': '100029', 'status': 'Printed'},
-  ];
-
-  int selectedBatchIndex = 1;
+  int selectedBatchIndex = 0;
   final ScrollController _tagListScrollController = ScrollController();
+
+  // Real tag data for whichever batch is selected.
+  List<Tag> _selectedBatchTags = [];
+  bool _isLoadingTags = false;
+  int? _tagsLoadedForBatchId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(batchProvider.notifier).loadAllBatches();
+    });
+  }
 
   @override
   void dispose() {
@@ -57,9 +41,44 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
     super.dispose();
   }
 
+  Future<void> _loadTagsForBatch(int batchId) async {
+    if (_tagsLoadedForBatchId == batchId) return; // already have it
+    if (_isLoadingTags) return; // ✅ ADD THIS — stops the rebuild storm
+    setState(() => _isLoadingTags = true);
+    try {
+      final tags = await ref.read(apiProvider).getBatchTags(batchId);
+      if (mounted) {
+        setState(() {
+          _selectedBatchTags = tags;
+          _isLoadingTags = false;
+          _tagsLoadedForBatchId = batchId;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingTags = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final selectedBatch = printedBatches[selectedBatchIndex];
+    final batchState = ref.watch(batchProvider);
+    final availableBatches = batchState.batches
+        .where((b) => b.status == 'Printed' && b.assignedTo == null)
+        .toList();
+
+    final hasBatches = availableBatches.isNotEmpty;
+    if (selectedBatchIndex >= availableBatches.length) selectedBatchIndex = 0;
+    final Batch? selectedBatch =
+        hasBatches ? availableBatches[selectedBatchIndex] : null;
+
+    // Whenever the selected batch changes, fetch its real tags.
+    // _loadTagsForBatch bails out early if we already have this batch's
+    // tags, so this is safe to call on every build.
+    if (selectedBatch != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadTagsForBatch(selectedBatch.batchId);
+      });
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -121,7 +140,7 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                       Expanded(
                         child: _buildStatCard(
                           'OPEN BATCHES',
-                          '1',
+                          '${availableBatches.length}',
                           'awaiting assignment',
                         ),
                       ),
@@ -136,8 +155,10 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: _buildSelectedBatchCard(
-                          selectedBatch['batchId']!,
-                          '${selectedBatch['woRef']} · ${selectedBatch['status']!.toLowerCase()}',
+                          selectedBatch?.batchCode ?? '—',
+                          hasBatches
+                              ? '${selectedBatch!.quantity} tags · available'
+                              : 'No batch selected',
                         ),
                       ),
                     ],
@@ -176,54 +197,74 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              Container(
-                                width: double.infinity,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey[300]!),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // Table header
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 12,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey[100],
-                                        border: Border(
-                                          bottom: BorderSide(
-                                              color: Colors.grey[300]!),
-                                        ),
-                                        borderRadius: const BorderRadius.only(
-                                          topLeft: Radius.circular(8),
-                                          topRight: Radius.circular(8),
-                                        ),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          _buildTableHeader('BATCH ID',
-                                              flex: 4),
-                                          _buildTableHeader('QTY',
-                                              flex: 1,
-                                              alignment: TextAlign.right),
-                                          _buildTableHeader('STATUS',
-                                              flex: 2,
-                                              alignment: TextAlign.right),
-                                        ],
-                                      ),
+                              if (batchState.isLoading)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 40),
+                                  child: Center(
+                                      child: CircularProgressIndicator()),
+                                )
+                              else if (!hasBatches)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 40),
+                                  child: Center(
+                                    child: Text(
+                                      'No batches ready to dispatch',
+                                      style: TextStyle(color: Colors.grey[500]),
                                     ),
-                                    // Table rows
-                                    ...printedBatches.asMap().entries.map(
-                                      (entry) {
+                                  ),
+                                )
+                              else
+                                Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    border:
+                                        Border.all(color: Colors.grey[300]!),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // Table header
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[100],
+                                          border: Border(
+                                            bottom: BorderSide(
+                                                color: Colors.grey[300]!),
+                                          ),
+                                          borderRadius: const BorderRadius.only(
+                                            topLeft: Radius.circular(8),
+                                            topRight: Radius.circular(8),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            _buildTableHeader('BATCH ID',
+                                                flex: 4),
+                                            _buildTableHeader('QTY',
+                                                flex: 1,
+                                                alignment: TextAlign.right),
+                                            _buildTableHeader('STATUS',
+                                                flex: 2,
+                                                alignment: TextAlign.right),
+                                          ],
+                                        ),
+                                      ),
+                                      // Table rows
+                                      ...availableBatches
+                                          .asMap()
+                                          .entries
+                                          .map((entry) {
                                         final i = entry.key;
                                         final batch = entry.value;
                                         final isSelected =
                                             i == selectedBatchIndex;
-                                        final isOngoing =
-                                            batch['status'] == 'Ongoing';
                                         return InkWell(
                                           onTap: () {
                                             setState(
@@ -261,7 +302,7 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                                             .start,
                                                     children: [
                                                       Text(
-                                                        batch['batchId']!,
+                                                        batch.batchCode,
                                                         style: const TextStyle(
                                                           fontSize: 14,
                                                           fontWeight:
@@ -270,7 +311,7 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                                       ),
                                                       const SizedBox(height: 2),
                                                       Text(
-                                                        batch['woRef']!,
+                                                        'DU #${batch.duId} · unassigned',
                                                         style: TextStyle(
                                                           fontSize: 12,
                                                           color:
@@ -283,7 +324,7 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                                 Expanded(
                                                   flex: 1,
                                                   child: Text(
-                                                    batch['qty']!,
+                                                    '${batch.quantity}',
                                                     textAlign: TextAlign.right,
                                                     style: const TextStyle(
                                                       fontSize: 16,
@@ -298,15 +339,9 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                                     alignment:
                                                         Alignment.centerRight,
                                                     child: _buildStatusPill(
-                                                      batch['status']!,
-                                                      isOngoing
-                                                          ? Colors.orange
-                                                          : const Color(
-                                                              0xFF1A7A3D),
-                                                      isOngoing
-                                                          ? Colors.orange[50]!
-                                                          : const Color(
-                                                              0xFFE7F6EC),
+                                                      'Available',
+                                                      const Color(0xFF1A7A3D),
+                                                      const Color(0xFFE7F6EC),
                                                     ),
                                                   ),
                                                 ),
@@ -314,11 +349,10 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                             ),
                                           ),
                                         );
-                                      },
-                                    ),
-                                  ],
+                                      }),
+                                    ],
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
@@ -342,7 +376,8 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          selectedBatch['batchId']!,
+                                          selectedBatch?.batchCode ??
+                                              'No batch selected',
                                           style: const TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,
@@ -350,7 +385,9 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${selectedBatch['woRef']!.split(' · ').first} · ${selectedBatch['status']!.toLowerCase()}',
+                                          hasBatches
+                                              ? 'DU #${selectedBatch!.duId} · available'
+                                              : '',
                                           style: TextStyle(
                                             fontSize: 13,
                                             color: Colors.grey[500],
@@ -373,7 +410,9 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        selectedBatch['qty']!,
+                                        hasBatches
+                                            ? '${selectedBatch!.quantity}'
+                                            : '—',
                                         style: const TextStyle(
                                           fontSize: 24,
                                           fontWeight: FontWeight.bold,
@@ -404,7 +443,7 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                               ),
                               const SizedBox(height: 20),
 
-                              // Tag table
+                              // Tag table — now real data
                               Container(
                                 decoration: BoxDecoration(
                                   border: Border.all(color: Colors.grey[300]!),
@@ -443,81 +482,108 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                     ),
                                     SizedBox(
                                       height: 300,
-                                      child: Scrollbar(
-                                        controller: _tagListScrollController,
-                                        thumbVisibility: true,
-                                        child: SingleChildScrollView(
-                                          controller: _tagListScrollController,
-                                          child: Column(
-                                            children: selectedBatchTags
-                                                .asMap()
-                                                .entries
-                                                .map((entry) {
-                                              final index = entry.key;
-                                              final tag = entry.value;
-                                              return Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 16,
-                                                  vertical: 12,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  border: Border(
-                                                    bottom: BorderSide(
+                                      child: _isLoadingTags
+                                          ? const Center(
+                                              child:
+                                                  CircularProgressIndicator(),
+                                            )
+                                          : _selectedBatchTags.isEmpty
+                                              ? Center(
+                                                  child: Text(
+                                                    'No tags in this batch',
+                                                    style: TextStyle(
                                                         color:
-                                                            Colors.grey[200]!),
+                                                            Colors.grey[500]),
+                                                  ),
+                                                )
+                                              : Scrollbar(
+                                                  controller:
+                                                      _tagListScrollController,
+                                                  thumbVisibility: true,
+                                                  child: SingleChildScrollView(
+                                                    controller:
+                                                        _tagListScrollController,
+                                                    child: Column(
+                                                      children:
+                                                          _selectedBatchTags
+                                                              .asMap()
+                                                              .entries
+                                                              .map((entry) {
+                                                        final index = entry.key;
+                                                        final tag = entry.value;
+                                                        return Container(
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                            horizontal: 16,
+                                                            vertical: 12,
+                                                          ),
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            border: Border(
+                                                              bottom: BorderSide(
+                                                                  color: Colors
+                                                                          .grey[
+                                                                      200]!),
+                                                            ),
+                                                          ),
+                                                          child: Row(
+                                                            children: [
+                                                              Expanded(
+                                                                flex: 1,
+                                                                child: Text(
+                                                                  '${index + 1}',
+                                                                  style: const TextStyle(
+                                                                      fontSize:
+                                                                          13),
+                                                                ),
+                                                              ),
+                                                              Expanded(
+                                                                flex: 3,
+                                                                child: Text(
+                                                                  tag.tagCode,
+                                                                  style:
+                                                                      const TextStyle(
+                                                                    fontSize:
+                                                                        13,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                              Expanded(
+                                                                flex: 3,
+                                                                child: Text(
+                                                                  tag.poleNo,
+                                                                  style: const TextStyle(
+                                                                      fontSize:
+                                                                          13),
+                                                                ),
+                                                              ),
+                                                              Expanded(
+                                                                flex: 2,
+                                                                child: Align(
+                                                                  alignment:
+                                                                      Alignment
+                                                                          .centerRight,
+                                                                  child:
+                                                                      _buildStatusPill(
+                                                                    tag.status,
+                                                                    const Color(
+                                                                        0xFF1A7A3D),
+                                                                    const Color(
+                                                                        0xFFE7F6EC),
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        );
+                                                      }).toList(),
+                                                    ),
                                                   ),
                                                 ),
-                                                child: Row(
-                                                  children: [
-                                                    Expanded(
-                                                      flex: 1,
-                                                      child: Text(
-                                                        '${index + 1}',
-                                                        style: const TextStyle(
-                                                            fontSize: 13),
-                                                      ),
-                                                    ),
-                                                    Expanded(
-                                                      flex: 3,
-                                                      child: Text(
-                                                        tag['tagId']!,
-                                                        style: const TextStyle(
-                                                          fontSize: 13,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    Expanded(
-                                                      flex: 3,
-                                                      child: Text(
-                                                        tag['poleNo']!,
-                                                        style: const TextStyle(
-                                                            fontSize: 13),
-                                                      ),
-                                                    ),
-                                                    Expanded(
-                                                      flex: 2,
-                                                      child: Align(
-                                                        alignment: Alignment
-                                                            .centerRight,
-                                                        child: _buildStatusPill(
-                                                          tag['status']!,
-                                                          const Color(
-                                                              0xFF1A7A3D),
-                                                          const Color(
-                                                              0xFFE7F6EC),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              );
-                                            }).toList(),
-                                          ),
-                                        ),
-                                      ),
                                     ),
                                   ],
                                 ),
@@ -529,7 +595,9 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      'Count the sheet against the ${selectedBatch['qty']} tag IDs listed above.',
+                                      hasBatches
+                                          ? 'Count the sheet against the ${_selectedBatchTags.length} tag IDs listed above.'
+                                          : 'Select a batch to begin.',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: Colors.grey[600],

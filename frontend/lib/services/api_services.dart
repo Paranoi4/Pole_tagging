@@ -397,6 +397,28 @@ class ApiService {
     }
   }
 
+  Future<List<Batch>> getAllBatches() => _fetchAllPages(
+      (skip, limit) => _getBatchesPage(skip: skip, limit: limit));
+
+  Future<List<Batch>> _getBatchesPage(
+      {int skip = 0, int limit = maxPageSize}) async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/batches?skip=$skip&limit=$limit'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Batch.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load batches: ${response.statusCode}',
+      );
+    }
+  }
+
   /// Get work orders for a specific DU
   Future<List<WorkOrder>> getWorkOrdersForDU(int duId) async {
     final response = await _send(() => http.get(

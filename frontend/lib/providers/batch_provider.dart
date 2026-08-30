@@ -8,11 +8,13 @@ class BatchState {
   final bool isLoading;
   final String? errorMessage;
   final Batch? createdBatch;
+  final List<Batch> batches; // new
 
   BatchState({
     this.isLoading = false,
     this.errorMessage,
     this.createdBatch,
+    this.batches = const [], // new
   });
 
   factory BatchState.initial() {
@@ -24,11 +26,13 @@ class BatchState {
     String? errorMessage,
     Batch? createdBatch,
     bool clearError = false,
+    List<Batch>? batches, // new
   }) {
     return BatchState(
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       createdBatch: createdBatch ?? this.createdBatch,
+      batches: batches ?? this.batches, // new
     );
   }
 }
@@ -64,6 +68,16 @@ class BatchNotifier extends StateNotifier<BatchState> {
         errorMessage: e.toString(),
       );
       rethrow;
+    }
+  }
+
+  Future<void> loadAllBatches() async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final batches = await _api.getAllBatches();
+      state = state.copyWith(batches: batches, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
   }
 

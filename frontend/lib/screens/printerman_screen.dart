@@ -559,34 +559,45 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                         style: TextStyle(color: Colors.grey),
                       ),
                     )
-                  : DropdownButtonHideUnderline(
-                      child: DropdownButton<DU>(
-                        value: duState.selectedDU,
-                        isExpanded: true,
-                        hint: const Text('Select DU'),
-                        items: duState.dus.map((du) {
-                          return DropdownMenuItem<DU>(
-                            value: du,
-                            child: Text(du.displayName),
-                          );
-                        }).toList(),
-                        onChanged: (du) {
-                          if (du != null) {
-                            setState(() {
-                              _selectedDU = du;
-                              _selectedWorkOrder = null;
-                            });
-                            ref.read(duProvider.notifier).selectDU(du);
-                            ref
-                                .read(workOrderProvider.notifier)
-                                .loadWorkOrdersForDU(du.duId);
+                  : duState.dus.length == 1
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            duState.dus.first.displayName,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        )
+                      : DropdownButtonHideUnderline(
+                          child: DropdownButton<DU>(
+                            value: duState.selectedDU,
+                            isExpanded: true,
+                            hint: const Text('Select DU'),
+                            items: duState.dus.map((du) {
+                              return DropdownMenuItem<DU>(
+                                value: du,
+                                child: Text(du.displayName),
+                              );
+                            }).toList(),
+                            onChanged: (du) {
+                              if (du != null) {
+                                setState(() {
+                                  _selectedDU = du;
+                                  _selectedWorkOrder = null;
+                                });
+                                ref.read(duProvider.notifier).selectDU(du);
+                                ref
+                                    .read(workOrderProvider.notifier)
+                                    .loadWorkOrdersForDU(du.duId);
 
-                            // Load latest batch for this DU
-                            _loadLatestBatchForDU(du.duId);
-                          }
-                        },
-                      ),
-                    ),
+                                // Load latest batch for this DU
+                                _loadLatestBatchForDU(du.duId);
+                              }
+                            },
+                          ),
+                        ),
         ),
       ],
     );
