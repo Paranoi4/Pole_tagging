@@ -199,6 +199,7 @@ def google_callback(code: str, db: Session = Depends(get_db)):
 # ===== REGISTER =====
 # router/auth.py
 
+# ===== REGISTER =====
 @router.post("/register", response_model=schemas.UserOut)
 def register(
     user: schemas.UserCreate,
@@ -206,11 +207,13 @@ def register(
 ):
     if db.query(models.User).filter(models.User.username == user.username).first():
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+
     if db.query(models.User).filter(models.User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
-    
-    # Create user
+
+    # No role is assigned here. Admins for NP/BP/MP already exist — new
+    # self-registrations land with no roles and see NoRolesScreen until an
+    # existing Admin assigns one via /user-roles.
     db_user = models.User(
         first_name=user.first_name,
         last_name=user.last_name,
@@ -221,26 +224,10 @@ def register(
         username=user.username,
         password=get_password_hash(user.password),
         auth_provider="local",
-        org_code=user.org_code,  # ✅ ADD THIS
+        org_code=user.org_code,
     )
     db.add(db_user)
-    db.flush()
-    
-    # ✅ AUTO-ASSIGN ROLE: Give user the "Admin" role
-    # Find the Admin role for this org
-    admin_role = db.query(models.Role).filter(
-        models.Role.role_name == "Admin",
-        models.Role.org_code == user.org_code
-    ).first()
-    
-    if admin_role:
-        db.add(models.UserRole(
-            user_id=db_user.user_id,
-            role_id=admin_role.role_id,
-            org_code=user.org_code
-        ))
-    
     db.commit()
     db.refresh(db_user)
-    
+
     return schemas.UserOut.model_validate(db_user)

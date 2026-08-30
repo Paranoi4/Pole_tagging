@@ -15,6 +15,7 @@ class User {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final List<Role> roles;
+  final String? orgCode; // ✅ ADD THIS
 
   User({
     required this.userId,
@@ -30,6 +31,7 @@ class User {
     this.createdAt,
     this.updatedAt,
     this.roles = const [],
+    this.orgCode, // ✅ ADD THIS
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -49,6 +51,7 @@ class User {
       roles: json['roles'] != null
           ? (json['roles'] as List).map((r) => Role.fromJson(r)).toList()
           : [],
+      orgCode: json['org_code'], // ✅ ADD THIS
     );
   }
 

@@ -1,7 +1,9 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import datetime
-
+# The only orgs this deployment serves. Centralized here so every schema
+# stays in sync — add a new org by editing this one line
+OrgCode = Literal["NP", "BP", "MP"]
 
 # ===== ROLE =====
 class RoleUpdate(BaseModel):
@@ -28,7 +30,7 @@ class UserCreate(BaseModel):
     contact: Optional[str] = None
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=8, max_length=72)
-    org_code: str = Field(min_length=2, max_length=10)  # ✅ ADD THIS
+    org_code: OrgCode
 
 
 class UserCreateAdmin(UserCreate):

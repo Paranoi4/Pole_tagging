@@ -165,6 +165,7 @@ class ApiService {
             'contact': user.contact,
             'username': user.username,
             'password': password,
+            'org_code': user.orgCode,
           }),
         ));
 

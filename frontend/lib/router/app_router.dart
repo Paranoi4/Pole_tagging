@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:frontend/providers/auth_providers.dart';
 import 'package:frontend/screens/home_screen.dart';
 import 'package:frontend/screens/login_screen.dart';
+import 'package:frontend/screens/no_roles_screen.dart';
 import 'package:frontend/screens/profile_screen.dart';
 import 'package:frontend/screens/register_screen.dart';
 import 'package:frontend/screens/roles_screen.dart';
@@ -59,6 +60,10 @@ class _AppRouterState extends ConsumerState<AppRouter> {
         GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
         GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
         GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
+        GoRoute(
+          path: '/no-roles',
+          builder: (_, __) => const NoRolesScreen(),
+        ),
         GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
         GoRoute(path: '/users', builder: (_, __) => const UsersScreen()),
         GoRoute(path: '/roles', builder: (_, __) => const RolesScreen()),
@@ -119,8 +124,9 @@ class _AppRouterState extends ConsumerState<AppRouter> {
     final roles =
         ref.read(authProvider).user?.roles.map((role) => role.roleName).toSet();
 
-    if (roles?.contains('Printerman') ?? false) return '/printerman';
-    if (roles?.contains('Dispatcher') ?? false) return '/dispatcher';
+    if (roles == null || roles.isEmpty) return '/no-roles';
+    if (roles.contains('Printerman')) return '/printerman';
+    if (roles.contains('Dispatcher')) return '/dispatcher';
     return '/home';
   }
 

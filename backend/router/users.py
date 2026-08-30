@@ -115,20 +115,23 @@ def get_user(
 # ============================================
 # UPDATE USER
 # ============================================
-@router.put("/{user_id}", response_model=schemas.UserOut)
+@router.put("/{user_id}", response_model=schemas.UserOut, dependencies=[Depends(require_role("Admin"))])
 def update_user(
     user_id: int,
     patch: schemas.UserUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
-    user = db.get(models.User, user_id)
+    """Admin can only update users within their own organization."""
+    user = db.query(models.User).filter(
+        models.User.user_id == user_id,
+        models.User.org_code == current_user.org_code,
+    ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     data = patch.model_dump(exclude_unset=True)
 
-    # Same uniqueness checks create_user does, so a clash returns 400 rather
-    # than letting the database raise and surface as a 500.
     if data.get("username") and data["username"] != user.username:
         if db.query(models.User).filter(models.User.username == data["username"]).first():
             raise HTTPException(status_code=400, detail="Username already exists")
@@ -143,7 +146,7 @@ def update_user(
 
     db.commit()
     db.refresh(user)
-    
+
     return schemas.UserOut.model_validate(user)
 
 

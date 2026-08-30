@@ -30,6 +30,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  String? _selectedOrgCode; // ✅ ADD THIS
   bool _obscurePassword = true;
 
   late final TextTheme _registerTextTheme =
@@ -57,6 +58,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedOrgCode == null)
+      return; // dropdown has its own validator below, this is a safety net
 
     final user = User(
       userId: 0,
@@ -64,6 +67,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       lastName: _lastNameController.text.trim(),
       email: _emailController.text.trim(),
       username: _usernameController.text.trim(),
+      orgCode: _selectedOrgCode, // ✅ ADD THIS
     );
 
     await ref.read(authProvider.notifier).register(
@@ -98,14 +102,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final form = _buildFormPanel(authState);
     final content = mobile
         ? Column(children: [brand, form])
-        : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Expanded(child: brand),
-            SizedBox(width: 420, child: form),
-          ]);
+        : IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: brand),
+                SizedBox(width: 420, child: form),
+              ],
+            ),
+          );
 
     return Container(
       width: mobile ? 440 : 960,
-      height: mobile ? null : 720,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(mobile ? 20 : 24),
         boxShadow: [
@@ -242,6 +250,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             const SizedBox(height: 15),
             _field('Username', 'Choose a username', _usernameController),
             const SizedBox(height: 15),
+            _orgCodeField(), // ✅ ADD THIS
+            const SizedBox(height: 15),
             _field('Password', 'At least 6 characters', _passwordController,
                 obscureText: _obscurePassword,
                 suffixIcon: _passwordToggle(), validator: (value) {
@@ -306,6 +316,52 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _orgCodeField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('Organization',
+            style: TextStyle(
+                fontSize: 12.5, fontWeight: FontWeight.w600, color: _gray600)),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          value: _selectedOrgCode,
+          items: const [
+            DropdownMenuItem(value: 'NP', child: Text('Negros Power (NP)')),
+            DropdownMenuItem(value: 'BP', child: Text('BP')),
+            DropdownMenuItem(value: 'MP', child: Text('MP')),
+          ],
+          onChanged: (value) => setState(() => _selectedOrgCode = value),
+          validator: (value) =>
+              value == null ? 'Select your organization' : null,
+          style: const TextStyle(fontSize: 13.5, color: _gray900),
+          decoration: InputDecoration(
+            hintText: 'Select organization',
+            hintStyle: const TextStyle(color: _gray300, fontSize: 13.5),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _gray200, width: 1.5)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _green500, width: 1.5)),
+            errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide:
+                    const BorderSide(color: Color(0xFFE11D48), width: 1.5)),
+            focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide:
+                    const BorderSide(color: Color(0xFFE11D48), width: 1.5)),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+        ),
+      ],
     );
   }
 
