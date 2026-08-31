@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/api_providers.dart';
+import 'package:frontend/providers/crew_provider.dart';
+import 'package:frontend/providers/du_provider.dart';
 import 'package:frontend/services/api_services.dart';
 
 class AuthState {
@@ -53,9 +55,22 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiService _api;
+  final Ref _ref;
   Timer? _tokenExpiryTimer;
 
-  AuthNotifier(this._api) : super(AuthState.initial());
+  AuthNotifier(this._api, this._ref) : super(AuthState.initial());
+
+  /// Providers that cache data scoped to the signed-in user's org (DUs,
+  /// crews, ...). Without this, whatever the previous admin had loaded
+  /// stays put — e.g. an NP admin's DU list showing up for a BP admin who
+  /// logs in right after, since duProvider/crewProvider live for the whole
+  /// app lifetime and only refetch when empty.
+  ///
+  /// Add any future org-scoped provider here too.
+  void _resetOrgScopedCaches() {
+    _ref.invalidate(duProvider);
+    _ref.invalidate(crewProvider);
+  }
 
   static DateTime? parseTokenExpiry(String token) {
     try {
@@ -117,6 +132,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Save token to SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', token);
+
+      // New session, possibly a different org — drop whatever the last
+      // signed-in user had cached before anything reads it.
+      _resetOrgScopedCaches();
 
       state = state.copyWith(
         user: user,
@@ -216,9 +235,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       isAuthenticated: false,
       isLoading: false,
     );
+
+    _resetOrgScopedCaches();
   }
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier(ref.watch(apiProvider));
+  return AuthNotifier(ref.watch(apiProvider), ref);
 });
