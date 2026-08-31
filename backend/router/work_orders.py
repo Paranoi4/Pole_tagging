@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 from datetime import datetime
 
@@ -17,16 +18,27 @@ router = APIRouter(prefix="/work-orders", tags=["Work Orders"])
 # ============================================================
 
 def generate_work_order_code(du_code: str, db: Session) -> str:
-    """Auto-generate work order code: WO-{DU}-{YEAR}-{SEQ}"""
+    """Auto-generate work order code: WO-{DU}-{YEAR}-{SEQ}
+
+    Sequenced from the highest number already issued, not from a row count.
+    Counting breaks permanently the first time a work order is deleted: with
+    0001-0003 present, removing 0002 leaves a count of 2, so the next create
+    proposes 0003 — which still exists — and every attempt after it repeats
+    that. Numbers here only ever move up; deleted ones stay as gaps.
+    """
     year = datetime.now().year
-    
-    # Count existing work orders for this DU this year
-    count = db.query(models.WorkOrder).filter(
-        models.WorkOrder.du.has(du_code=du_code),
-        models.WorkOrder.work_order_code.like(f"WO-{du_code}-{year}-%")
-    ).count() + 1
-    
-    return f"WO-{du_code}-{year}-{count:04d}"
+    prefix = f"WO-{du_code}-{year}-"
+
+    highest = 0
+    codes = db.query(models.WorkOrder.work_order_code).filter(
+        models.WorkOrder.work_order_code.like(f"{prefix}%")
+    ).all()
+    for (code,) in codes:
+        suffix = code[len(prefix):]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+
+    return f"{prefix}{highest + 1:04d}"
 
 
 # ============================================================
@@ -78,9 +90,18 @@ def create_work_order(
         org_code=current_user.org_code,
     )
     db.add(db_work_order)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Two admins creating for the same DU in the same moment compute the
+        # same next number; work_order_code is unique, so the second loses.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Another work order was created at the same moment. Please try again.",
+        ) from exc
     db.refresh(db_work_order)
-    
+
     return db_work_order
 
 

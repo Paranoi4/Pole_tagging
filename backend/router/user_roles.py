@@ -79,7 +79,31 @@ def remove_role_by_ids(
     ).first()
     if not user_role:
         raise HTTPException(status_code=404, detail="User role assignment not found")
-    
+
+    # Stripping the organization's last Admin assignment leaves nobody able to
+    # grant it back — the same lockout that delete_user guards against, reached
+    # through a different door.
+    role = db.get(models.Role, role_id)
+    if role is not None and role.role_name == RoleName.ADMIN.value:
+        remaining_admins = (
+            db.query(models.UserRole)
+            .join(models.Role, models.Role.role_id == models.UserRole.role_id)
+            .filter(
+                models.UserRole.org_code == current_user.org_code,
+                models.Role.role_name == RoleName.ADMIN.value,
+                models.UserRole.user_role_id != user_role.user_role_id,
+            )
+            .count()
+        )
+        if remaining_admins == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Cannot remove the last Admin in this organization. "
+                    "Assign Admin to someone else first."
+                ),
+            )
+
     db.delete(user_role)
     db.commit()
     return {"message": "Role removed from user"}

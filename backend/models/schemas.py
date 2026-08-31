@@ -2,7 +2,7 @@ from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime
 
-from models.enums import OrgCode
+from models.enums import OrgCode, TagStatus
 
 # ===== ROLE =====
 
@@ -224,7 +224,7 @@ class TagCreate(BaseModel):
     du_id: int
     tag_code: str = Field(min_length=4, max_length=20)
     pole_no: str = Field(min_length=1, max_length=255)
-    status: Optional[str] = Field(default="Available")
+    status: Optional[str] = Field(default=TagStatus.AVAILABLE.value)
     remarks: Optional[str] = None
 
 

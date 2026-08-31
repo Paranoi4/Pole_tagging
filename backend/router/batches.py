@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 from datetime import datetime
 
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
-from models.enums import RoleName
+from models.enums import RoleName, TagStatus, BatchStatus, BATCH_STATUS_PATTERN
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
@@ -17,16 +18,27 @@ router = APIRouter(prefix="/batches", tags=["Batches"])
 # ============================================================
 
 def generate_batch_code(du_code: str, db: Session) -> str:
-    """Auto-generate batch code: BT-{DU}-{YEAR}-{SEQ}"""
+    """Auto-generate batch code: BT-{DU}-{YEAR}-{SEQ}
+
+    Sequenced from the highest number already issued, not from a row count.
+    Counting breaks permanently the first time a batch is deleted: with
+    0001-0003 present, removing 0002 leaves a count of 2, so the next create
+    proposes 0003 — which still exists — and every attempt after it repeats
+    that. Numbers here only ever move up; deleted ones stay as gaps.
+    """
     year = datetime.now().year
-    
-    # Count existing batches for this DU this year
-    count = db.query(models.Batch).filter(
-        models.Batch.du.has(du_code=du_code),
-        models.Batch.batch_code.like(f"BT-{du_code}-{year}-%")
-    ).count() + 1
-    
-    return f"BT-{du_code}-{year}-{count:04d}"
+    prefix = f"BT-{du_code}-{year}-"
+
+    highest = 0
+    codes = db.query(models.Batch.batch_code).filter(
+        models.Batch.batch_code.like(f"{prefix}%")
+    ).all()
+    for (code,) in codes:
+        suffix = code[len(prefix):]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+
+    return f"{prefix}{highest + 1:04d}"
 
 
 # ============================================================
@@ -79,7 +91,7 @@ def create_batch(
     # ============================================================
     available_count = db.query(models.Tag).filter(
         models.Tag.du_id == batch.du_id,
-        models.Tag.status == "Available",
+        models.Tag.status == TagStatus.AVAILABLE.value,
         models.Tag.batch_id == None,
         models.Tag.org_code == current_user.org_code
     ).count()
@@ -103,7 +115,7 @@ def create_batch(
         work_order_id=batch.work_order_id,
         batch_code=batch_code,
         quantity=batch.quantity,
-        status="Pending",
+        status=BatchStatus.PENDING.value,
         assigned_to=batch.assigned_to,
         created_by=current_user.user_id,
         org_code=current_user.org_code,
@@ -116,7 +128,7 @@ def create_batch(
     # ============================================================
     tags_to_assign = db.query(models.Tag).filter(
         models.Tag.du_id == batch.du_id,
-        models.Tag.status == "Available",
+        models.Tag.status == TagStatus.AVAILABLE.value,
         models.Tag.batch_id == None,
         models.Tag.org_code == current_user.org_code
     ).limit(batch.quantity).all()
@@ -131,9 +143,18 @@ def create_batch(
     # ============================================================
     # 7. Commit and return
     # ============================================================
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Two printermen creating for the same DU in the same moment compute
+        # the same next number; batch_code is unique, so the second loses.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Another batch was created at the same moment. Please try again.",
+        ) from exc
     db.refresh(db_batch)
-    
+
     return db_batch
 
 # ============================================================
@@ -207,7 +228,7 @@ def get_batch_tags(
 @router.patch("/{batch_id}/status", response_model=schemas.BatchOut)
 def update_batch_status(
     batch_id: int,
-    status: str = Query(..., pattern="^(Pending|Printed|Dispatched)$"),
+    status: str = Query(..., pattern=BATCH_STATUS_PATTERN),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -243,7 +264,7 @@ def assign_crew_to_batch(
         raise HTTPException(status_code=404, detail="Batch not found")
     
     batch.assigned_to = assigned_to
-    batch.status = "Dispatched"
+    batch.status = BatchStatus.DISPATCHED.value
     db.commit()
     db.refresh(batch)
     return batch
@@ -266,12 +287,28 @@ def delete_batch(
     ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    
-    # Release tags back to available pool
+
+    # Tags that left "Available" record something that happened in the field —
+    # printed, dispatched, installed on a pole. Releasing those back to the pool
+    # would hand the same code out for a second pole, so a batch is only
+    # deletable while none of its tags have been used yet.
+    used = [t for t in batch.tags if t.status != TagStatus.AVAILABLE.value]
+    if used:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot delete this batch: {len(used)} of its tags are already "
+                f"in use ({', '.join(sorted({t.status for t in used}))}). "
+                "Only a batch whose tags are all still Available can be deleted."
+            ),
+        )
+
+    # Release the untouched tags back to the available pool.
     for tag in batch.tags:
         tag.batch_id = None
-        tag.status = "Available"
-    
+        tag.status = TagStatus.AVAILABLE.value
+
+    batch_code = batch.batch_code
     db.delete(batch)
     db.commit()
-    return {"message": f"Batch {batch.batch_code} deleted successfully"}
+    return {"message": f"Batch {batch_code} deleted successfully"}

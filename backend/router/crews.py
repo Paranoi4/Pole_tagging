@@ -101,6 +101,13 @@ def update_crew(
         if not city:
             raise HTTPException(status_code=404, detail="City not found in your organization")
 
+    # crew_label is NOT NULL, so an explicit null here reaches the database as a
+    # constraint violation and surfaces as a 500. city_id is nullable and a null
+    # there is meaningful — that is how a crew is unassigned from a city — so
+    # the two cannot share the blanket "skip None" the other routers use.
+    if "crew_label" in data and data["crew_label"] is None:
+        raise HTTPException(status_code=400, detail="Crew label cannot be empty")
+
     for field, value in data.items():
         setattr(crew, field, value)
 

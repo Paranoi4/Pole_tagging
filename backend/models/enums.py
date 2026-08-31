@@ -36,3 +36,43 @@ class RoleName(str, Enum):
 
     def __str__(self) -> str:
         return self.value
+
+
+class TagStatus(str, Enum):
+    """Where a physical tag is in its life.
+
+    Anything other than AVAILABLE means the tag has left the shelf and records
+    something that happened in the field, which is why a batch holding one of
+    those cannot be deleted.
+    """
+
+    AVAILABLE = "Available"
+    PRINTED = "Printed"
+    DISPATCHED = "Dispatched"
+    INSTALLED = "Installed"
+    LOST = "Lost"
+    DAMAGED = "Damaged"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class BatchStatus(str, Enum):
+    """Where a batch is in the print-and-hand-over flow."""
+
+    PENDING = "Pending"
+    PRINTED = "Printed"
+    DISPATCHED = "Dispatched"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+def _pattern(enum_cls) -> str:
+    """Regex for a `Query(..., pattern=...)` that accepts exactly this enum's
+    values, built from the enum so the two can never drift apart."""
+    return "^(" + "|".join(member.value for member in enum_cls) + ")$"
+
+
+TAG_STATUS_PATTERN = _pattern(TagStatus)
+BATCH_STATUS_PATTERN = _pattern(BatchStatus)

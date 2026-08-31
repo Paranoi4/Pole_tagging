@@ -6,6 +6,7 @@ from datetime import datetime
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import TagStatus, TAG_STATUS_PATTERN
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/tags", tags=["Tags"])
@@ -31,7 +32,7 @@ def get_available_tags(
     
     tags = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Available",
+        models.Tag.status == TagStatus.AVAILABLE.value,
         models.Tag.org_code == current_user.org_code
     ).limit(limit).all()
     
@@ -44,17 +45,20 @@ def get_available_tags(
 @router.patch("/{tag_id}/status", response_model=schemas.TagOut)
 def update_tag_status(
     tag_id: int,
-    status: str = Query(..., pattern="^(Available|Printed|Dispatched|Installed|Lost|Damaged)$"),
+    status: str = Query(..., pattern=TAG_STATUS_PATTERN),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tag = db.get(models.Tag, tag_id)
+    # Matched on id *and* org in one query: a tag belonging to another
+    # organization has to read as "not found", the same as everywhere else. A
+    # 403 here would confirm the tag exists, which is itself a leak.
+    tag = db.query(models.Tag).filter(
+        models.Tag.tag_id == tag_id,
+        models.Tag.org_code == current_user.org_code,
+    ).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    
-    if tag.org_code != current_user.org_code:
-        raise HTTPException(status_code=403, detail="You don't have access to this tag")
-    
+
     tag.status = status
     tag.updated_by = current_user.user_id
     tag.updated_at = datetime.utcnow()
@@ -70,7 +74,7 @@ def update_tag_status(
 @router.patch("/bulk/status")
 def bulk_update_status(
     tag_ids: List[int] = Query(..., description="List of tag IDs"),
-    status: str = Query(..., pattern="^(Available|Printed|Dispatched|Installed|Lost|Damaged)$"),
+    status: str = Query(..., pattern=TAG_STATUS_PATTERN),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -119,7 +123,7 @@ def get_next_available_tag(
     # Get next available tag for this DU in the user's org
     tag = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Available",
+        models.Tag.status == TagStatus.AVAILABLE.value,
         models.Tag.org_code == current_user.org_code
     ).order_by(models.Tag.tag_id).first()
     
@@ -156,7 +160,7 @@ def get_tag_stats(
     ).count()
     
     status_counts = {}
-    for status in ["Available", "Printed", "Dispatched", "Installed", "Lost", "Damaged"]:
+    for status in (member.value for member in TagStatus):
         count = db.query(models.Tag).filter(
             models.Tag.du_id == du_id,
             models.Tag.status == status,

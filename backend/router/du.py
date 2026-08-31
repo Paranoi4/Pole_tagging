@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
-from models.enums import RoleName
+from models.enums import RoleName, TagStatus
 from utils.auth import get_current_user, require_role
 from utils.tag_encoding import generate_all_tags_for_du
 
@@ -54,8 +55,14 @@ def create_du(
     # AUTO-GENERATE ALL 1,048,575 TAGS WITH DU PREFIX
     tags = generate_all_tags_for_du(db_du.du_id, db_du.du_code, current_user.org_code)
     db.bulk_insert_mappings(models.Tag, tags)
-    
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # du_code is unique across the whole table; the check above is
+        # check-then-insert and two admins can pass it at the same moment.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="DU code already exists") from exc
     db.refresh(db_du)
     
     return {
@@ -142,19 +149,19 @@ def get_du_with_stats(
     
     available = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Available",
+        models.Tag.status == TagStatus.AVAILABLE.value,
         models.Tag.org_code == current_user.org_code
     ).count()
     
     printed = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Printed",
+        models.Tag.status == TagStatus.PRINTED.value,
         models.Tag.org_code == current_user.org_code
     ).count()
     
     dispatched = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Dispatched",
+        models.Tag.status == TagStatus.DISPATCHED.value,
         models.Tag.org_code == current_user.org_code
     ).count()
     
@@ -203,8 +210,13 @@ def update_du(
     for field, value in data.items():
         if value is not None:
             setattr(du, field, value)
-    
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Same check-then-write race as create_du.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="DU code already exists") from exc
     db.refresh(du)
     return du
 
