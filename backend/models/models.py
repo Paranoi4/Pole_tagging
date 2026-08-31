@@ -8,7 +8,7 @@ class Role(Base):
     __tablename__ = "roles"
 
     role_id = Column(Integer, primary_key=True, index=True)
-    role_name = Column(String(100), nullable=False, unique=True)
+    role_name = Column(String(100), nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
 
@@ -18,7 +18,10 @@ class Role(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-
+ # ✅ ADD THIS - Composite unique constraint
+    __table_args__ = (
+        UniqueConstraint('role_name', 'org_code', name='uq_role_name_org'),
+    )
 
 class DistributionUtility(Base):
     __tablename__ = "distribution_utilities"
@@ -54,7 +57,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
+    crew_id = Column(Integer, ForeignKey("crews.crew_id", ondelete="SET NULL"), nullable=True)  # ✅ ADD THIS
+    crew = relationship("Crew", back_populates="members", foreign_keys=[crew_id])  # ✅ ADD THIS
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime, nullable=True)
     org_code = Column(String(10), nullable=False)  # ✅ ADD THIS
@@ -159,3 +163,29 @@ class WorkOrder(Base):
     du = relationship("DistributionUtility", back_populates="work_orders")
     creator = relationship("User", foreign_keys=[created_by])
     batches = relationship("Batch", back_populates="work_order")
+
+class City(Base):
+    __tablename__ = "cities"
+
+    city_id = Column(Integer, primary_key=True, index=True)
+    du_id = Column(Integer, ForeignKey("distribution_utilities.du_id", ondelete="CASCADE"), nullable=False)
+    org_code = Column(String(10), nullable=False)
+    city_name = Column(String(255), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+
+    du = relationship("DistributionUtility")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class Crew(Base):
+    __tablename__ = "crews"
+
+    crew_id = Column(Integer, primary_key=True, index=True)
+    city_id = Column(Integer, ForeignKey("cities.city_id", ondelete="SET NULL"), nullable=True)
+    crew_label = Column(String(255), nullable=False)
+    org_code = Column(String(10), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+
+    city = relationship("City")
+    creator = relationship("User", foreign_keys=[created_by])
+    members = relationship("User", back_populates="crew", foreign_keys="User.crew_id")

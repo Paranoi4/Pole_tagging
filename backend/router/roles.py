@@ -78,33 +78,44 @@ def get_role(
 def update_role(
     role_id: int,
     patch: schemas.RoleUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
 ):
-    role = db.get(models.Role, role_id)
+    role = db.query(models.Role).filter(
+        models.Role.role_id == role_id,
+        models.Role.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     
     data = patch.model_dump(exclude_unset=True)
-
-    # Same uniqueness check create_role does, so a clash returns 400 rather
-    # than letting the database raise and surface as a 500.
+    
     if data.get("role_name") and data["role_name"] != role.role_name:
-        if db.query(models.Role).filter(models.Role.role_name == data["role_name"]).first():
-            raise HTTPException(status_code=400, detail="Role already exists")
-
+        if db.query(models.Role).filter(
+            models.Role.role_name == data["role_name"],
+            models.Role.org_code == current_user.org_code  # ← ADD THIS
+        ).first():
+            raise HTTPException(status_code=400, detail="Role already exists in this organization")
+    
     for field, value in data.items():
         if value is not None:
             setattr(role, field, value)
-
+    
     db.commit()
     db.refresh(role)
     return role
 
-
 # ===== DELETE ROLE =====
 @router.delete("/{role_id}", dependencies=[Depends(require_role("Admin"))])
-def delete_role(role_id: int, db: Session = Depends(get_db)):
-    role = db.get(models.Role, role_id)
+def delete_role(
+    role_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
+):
+    role = db.query(models.Role).filter(
+        models.Role.role_id == role_id,
+        models.Role.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     

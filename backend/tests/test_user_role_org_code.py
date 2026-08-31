@@ -14,13 +14,24 @@ class UserRoleOrgCodeTest(unittest.TestCase):
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=self.engine)
         self.session = Session(self.engine)
-        self.session.add(models.Role(role_id=22, role_name="Admin", org_code="NP"))
+        
+        # Create test role
+        self.session.add(models.Role(role_id=1, role_name="Admin", org_code="NP"))
         self.session.commit()
 
     def tearDown(self):
         self.session.close()
 
-    def test_create_user_sets_org_code_on_user_role(self):
+    def test_create_user_sets_org_code_from_current_user(self):
+        # ✅ Create a mock admin user
+        current_user = models.User(
+            user_id=1,
+            username="admin_np",
+            org_code="NP",
+            is_active=True,
+        )
+        
+        # ✅ Remove org_code from payload (field no longer exists)
         payload = UserCreateAdmin(
             first_name="roan",
             last_name="roan",
@@ -30,14 +41,15 @@ class UserRoleOrgCodeTest(unittest.TestCase):
             contact="09277709812",
             username="roanroan",
             password="roanroan",
-            org_code="NP",
-            role_ids=[22],
+            role_ids=[1],  # ✅ Use role_id=1 to match test
         )
 
-        user = create_user(payload, self.session)
-        record = self.session.query(models.UserRole).first()
-
+        # ✅ Pass current_user to create_user
+        user = create_user(payload, self.session, current_user)
+        
+        # ✅ Assertions
         self.assertEqual(user.org_code, "NP")
+        record = self.session.query(models.UserRole).first()
         self.assertIsNotNone(record)
         self.assertEqual(record.org_code, "NP")
 

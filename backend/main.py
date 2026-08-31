@@ -7,7 +7,7 @@ import models.models as models
 # CREATE MISSING TABLES ONLY
 # ============================================================
 # print("Creating any missing tables...")
-# Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 # print("✅ Tables ready")
 # ============================================================
 
@@ -35,7 +35,7 @@ def seed_roles():
 seed_roles()
 
 # Import routers
-from router import users, roles, auth, user_roles, me, du, tags, batches, work_orders
+from router import users, roles, auth, user_roles, me, du, tags, batches, work_orders, crews, cities
 
 app = FastAPI(title="Poletagging API")
 
@@ -60,3 +60,5 @@ app.include_router(du.router)
 app.include_router(tags.router)
 app.include_router(batches.router)
 app.include_router(work_orders.router)
+app.include_router(crews.router)  # ✅ add this line
+app.include_router(cities.router) 

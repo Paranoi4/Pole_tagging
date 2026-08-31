@@ -43,17 +43,14 @@ def create_du(
         du_name=du.du_name,
         du_code=du.du_code,
         created_by=current_user.user_id,
-        org_code=du.org_code,  # ✅ USE PROVIDED ORG CODE
+        org_code=du.org_code,
     )
     db.add(db_du)
-    db.flush()  # Get du_id without committing
+    db.flush()
     
-    # ============================================================
-    # 🔥 AUTO-GENERATE ALL 1,048,575 TAGS WITH DU PREFIX
-    # ============================================================
+    # AUTO-GENERATE ALL 1,048,575 TAGS WITH DU PREFIX
     tags = generate_all_tags_for_du(db_du.du_id, db_du.du_code, du.org_code)
     db.bulk_insert_mappings(models.Tag, tags)
-    # ============================================================
     
     db.commit()
     db.refresh(db_du)
@@ -80,7 +77,7 @@ def list_dus(
 ):
     query = db.query(models.DistributionUtility)
     
-    # ✅ FILTER by org_code
+    # FILTER by org_code
     query = query.filter(models.DistributionUtility.org_code == current_user.org_code)
     
     if not include_inactive:
@@ -118,7 +115,7 @@ def get_du(
 
 
 # ============================================================
-# 4. GET DU WITH TAG STATISTICS
+# 4. GET DU WITH TAG STATISTICS (FIXED)
 # ============================================================
 
 @router.get("/{du_id}/stats", response_model=schemas.DUWithStats)
@@ -139,17 +136,24 @@ def get_du_with_stats(
         models.Tag.du_id == du_id,
         models.Tag.org_code == current_user.org_code,
     ).count()
+    
+    # ✅ ADD org_code to all status counts
     available = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Available"
+        models.Tag.status == "Available",
+        models.Tag.org_code == current_user.org_code  # ✅ ADDED
     ).count()
+    
     printed = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Printed"
+        models.Tag.status == "Printed",
+        models.Tag.org_code == current_user.org_code  # ✅ ADDED
     ).count()
+    
     dispatched = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.status == "Dispatched"
+        models.Tag.status == "Dispatched",
+        models.Tag.org_code == current_user.org_code  # ✅ ADDED
     ).count()
     
     return {
@@ -162,7 +166,7 @@ def get_du_with_stats(
 
 
 # ============================================================
-# 5. UPDATE DU
+# 5. UPDATE DU (FIXED)
 # ============================================================
 
 @router.put("/{du_id}", response_model=schemas.DUOut, dependencies=[Depends(require_role("Admin"))])
@@ -170,9 +174,13 @@ def update_du(
     du_id: int,
     patch: schemas.DUUpdate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ✅ ADDED
 ):
     """Update a DU."""
-    du = db.get(models.DistributionUtility, du_id)
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+    ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     
@@ -200,7 +208,7 @@ def update_du(
 
 
 # ============================================================
-# 6. DELETE DU (HARD DELETE - DELETES ALL TAGS)
+# 6. DELETE DU (HARD DELETE - FIXED)
 # ============================================================
 
 @router.delete("/{du_id}", dependencies=[Depends(require_role("Admin"))])
@@ -214,17 +222,21 @@ def delete_du(
     
     ⚠️ WARNING: This action cannot be undone!
     """
-    
-    du = db.get(models.DistributionUtility, du_id)
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+    ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     
-    tags_count = db.query(models.Tag).filter(models.Tag.du_id == du_id).count()
+    tags_count = db.query(models.Tag).filter(
+        models.Tag.du_id == du_id,
+        models.Tag.org_code == current_user.org_code  # ✅ ADDED
+    ).count()
     
     du_name = du.du_name
     du_code = du.du_code
     
-    # This will delete all tags automatically due to CASCADE
     db.delete(du)
     db.commit()
     
@@ -239,16 +251,20 @@ def delete_du(
 
 
 # ============================================================
-# 7. SOFT DELETE DU (Deactivate)
+# 7. SOFT DELETE DU (Deactivate - FIXED)
 # ============================================================
 
 @router.patch("/{du_id}/deactivate", dependencies=[Depends(require_role("Admin"))])
 def deactivate_du(
     du_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ✅ ADDED
 ):
     """SOFT DELETE a DU (Just deactivates it, tags remain)."""
-    du = db.get(models.DistributionUtility, du_id)
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+    ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     
@@ -269,16 +285,20 @@ def deactivate_du(
 
 
 # ============================================================
-# 8. REACTIVATE DU
+# 8. REACTIVATE DU (FIXED)
 # ============================================================
 
 @router.patch("/{du_id}/reactivate", response_model=schemas.DUOut, dependencies=[Depends(require_role("Admin"))])
 def reactivate_du(
     du_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ✅ ADDED
 ):
     """Reactivate a deactivated DU."""
-    du = db.get(models.DistributionUtility, du_id)
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.du_id == du_id,
+        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+    ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     

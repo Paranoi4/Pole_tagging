@@ -209,15 +209,16 @@ def update_batch_status(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Update batch status."""
-    batch = db.get(models.Batch, batch_id)
+    batch = db.query(models.Batch).filter(
+        models.Batch.batch_id == batch_id,
+        models.Batch.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     
     batch.status = status
     db.commit()
     db.refresh(batch)
-    
     return batch
 
 
@@ -232,8 +233,10 @@ def assign_crew_to_batch(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Assign a crew to a batch."""
-    batch = db.get(models.Batch, batch_id)
+    batch = db.query(models.Batch).filter(
+        models.Batch.batch_id == batch_id,
+        models.Batch.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     
@@ -241,7 +244,6 @@ def assign_crew_to_batch(
     batch.status = "Dispatched"
     db.commit()
     db.refresh(batch)
-    
     return batch
 
 
@@ -249,13 +251,17 @@ def assign_crew_to_batch(
 # 7. DELETE BATCH
 # ============================================================
 
+
 @router.delete("/{batch_id}", dependencies=[Depends(require_role("Admin"))])
 def delete_batch(
     batch_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
 ):
-    """Delete a batch (tags become available again)."""
-    batch = db.get(models.Batch, batch_id)
+    batch = db.query(models.Batch).filter(
+        models.Batch.batch_id == batch_id,
+        models.Batch.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     
@@ -266,5 +272,4 @@ def delete_batch(
     
     db.delete(batch)
     db.commit()
-    
     return {"message": f"Batch {batch.batch_code} deleted successfully"}

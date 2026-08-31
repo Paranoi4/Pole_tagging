@@ -136,14 +136,16 @@ def update_work_order(
     work_order_id: int,
     patch: schemas.WorkOrderUpdate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
 ):
-    """Update a Work Order."""
-    work_order = db.get(models.WorkOrder, work_order_id)
+    work_order = db.query(models.WorkOrder).filter(
+        models.WorkOrder.work_order_id == work_order_id,
+        models.WorkOrder.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not work_order:
         raise HTTPException(status_code=404, detail="Work Order not found")
     
     data = patch.model_dump(exclude_unset=True)
-    
     for field, value in data.items():
         if value is not None:
             setattr(work_order, field, value)
@@ -161,9 +163,12 @@ def update_work_order(
 def delete_work_order(
     work_order_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
 ):
-    """Delete a Work Order."""
-    work_order = db.get(models.WorkOrder, work_order_id)
+    work_order = db.query(models.WorkOrder).filter(
+        models.WorkOrder.work_order_id == work_order_id,
+        models.WorkOrder.org_code == current_user.org_code  # ← ADD THIS
+    ).first()
     if not work_order:
         raise HTTPException(status_code=404, detail="Work Order not found")
     

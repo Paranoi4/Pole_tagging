@@ -21,7 +21,34 @@ class RoleOut(BaseModel):
 
 
 # ===== USER =====
-class UserCreate(BaseModel):
+# class UserCreate(BaseModel):
+#     first_name: str = Field(min_length=1, max_length=255)
+#     last_name: str = Field(min_length=1, max_length=255)
+#     middle_name: Optional[str] = None
+#     suffix: Optional[str] = None
+#     email: EmailStr
+#     contact: Optional[str] = None
+#     username: str = Field(min_length=3, max_length=50)
+#     password: str = Field(min_length=8, max_length=72)
+#     org_code: OrgCode
+
+
+# class UserCreateAdmin(UserCreate):
+#     role_ids: list[int] = []
+
+
+# class UserUpdate(BaseModel):
+#     first_name: Optional[str] = None
+#     last_name: Optional[str] = None
+#     middle_name: Optional[str] = None
+#     suffix: Optional[str] = None
+#     email: Optional[EmailStr] = None
+#     contact: Optional[str] = None
+#     username: Optional[str] = None
+#     is_active: Optional[bool] = None
+#     org_code: Optional[str] = None  # ✅ ADD THIS
+
+class UserBase(BaseModel):
     first_name: str = Field(min_length=1, max_length=255)
     last_name: str = Field(min_length=1, max_length=255)
     middle_name: Optional[str] = None
@@ -30,11 +57,14 @@ class UserCreate(BaseModel):
     contact: Optional[str] = None
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=8, max_length=72)
-    org_code: OrgCode
 
 
-class UserCreateAdmin(UserCreate):
-    role_ids: list[int] = []
+class UserCreate(UserBase):
+    org_code: OrgCode  # ✅ KEPT for self-registration
+
+
+class UserCreateAdmin(UserBase):
+    role_ids: list[int] = []  # ❌ NO org_code - uses admin's org from token
 
 
 class UserUpdate(BaseModel):
@@ -46,7 +76,7 @@ class UserUpdate(BaseModel):
     contact: Optional[str] = None
     username: Optional[str] = None
     is_active: Optional[bool] = None
-    org_code: Optional[str] = None  # ✅ ADD THIS
+    # ❌ REMOVED org_code - users can't change organization
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -249,3 +279,39 @@ class TagOut(BaseModel):
     @property
     def full_tag(self) -> str:
         return self.tag_code
+
+class CityCreate(BaseModel):
+    city_name: str = Field(min_length=1, max_length=255)
+    du_id: int
+
+
+class CityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    city_id: int
+    city_name: str
+    du_id: int
+    org_code: str
+    created_by: Optional[int] = None
+
+class CityUpdate(BaseModel):
+    city_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    du_id: Optional[int] = None
+
+
+class CrewCreate(BaseModel):
+    crew_label: str = Field(min_length=1, max_length=255)
+    city_id: Optional[int] = None
+
+
+class CrewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    crew_id: int
+    crew_label: str
+    city_id: Optional[int] = None
+    city: Optional[CityOut] = None
+    org_code: str
+    created_by: Optional[int] = None
+
+class CrewUpdate(BaseModel):
+    crew_label: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    city_id: Optional[int] = None
