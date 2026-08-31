@@ -7,12 +7,11 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/models/role.dart';
 import 'package:frontend/models/auth.dart';
 import 'package:frontend/models/du.dart';
-import 'package:frontend/models/batch.dart'; // ✅ ADD THIS LINE
+import 'package:frontend/models/batch.dart';
 import 'package:frontend/models/work_order.dart';
-import 'package:frontend/models/tag.dart'; // Add import
-import 'package:frontend/models/city.dart'; // ✅ ADD THIS LINE
-import 'package:frontend/models/crew.dart'; // ✅ ADD THIS LINE
-import 'package:frontend/providers/api_providers.dart';
+import 'package:frontend/models/tag.dart';
+import 'package:frontend/models/city.dart';
+import 'package:frontend/models/crew.dart';
 
 /// Talks to the Poletagging API.
 ///
@@ -380,25 +379,6 @@ class ApiService {
     }
   }
 
-  /// Get batches for a specific DU to calculate next code
-  Future<List<Batch>> getBatchesForDU(int duId) async {
-    final response = await _send(() => http.get(
-          Uri.parse('$baseUrl/batches?du_id=$duId&limit=100'),
-          headers: _authHeaders,
-        ));
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      return data.map((json) => Batch.fromJson(json)).toList();
-    } else {
-      throw ApiException.fromResponse(
-        response.statusCode,
-        response.body,
-        fallback: 'Failed to load batches: ${response.statusCode}',
-      );
-    }
-  }
-
   Future<List<Batch>> getAllBatches() => _fetchAllPages(
       (skip, limit) => _getBatchesPage(skip: skip, limit: limit));
 
@@ -524,21 +504,6 @@ class ApiService {
       );
     }
   }
-
-  /// Bulk update tag status for a batch (all tags in batch → Printed)
-  Future<void> bulkUpdateTagStatusForBatch(int batchId, String status) async {
-    // First get all tags in the batch
-    final tags = await getBatchTags(batchId);
-
-    // Update each tag's status
-    for (final tag in tags) {
-      await _send(() => http.patch(
-            Uri.parse('$baseUrl/tags/${tag.tagId}/status?status=$status'),
-            headers: _authHeaders,
-          ));
-    }
-  }
-  // lib/services/api_services.dart
 
   /// Update a single tag's status
   Future<Tag> updateTagStatus(int tagId, String status) async {

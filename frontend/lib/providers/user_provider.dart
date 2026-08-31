@@ -107,15 +107,21 @@ class UserNotifier extends StateNotifier<UserState> {
   /// Used by the role-assign bottom sheet, which lets an Admin check/uncheck
   /// several roles and save once rather than one call per toggle.
   Future<void> updateUserRoles(int userId, Set<int> desiredRoleIds) async {
-    final user = state.users.firstWhere((u) => u.userId == userId);
-    final currentRoleIds = user.roles.map((r) => r.roleId).toSet();
-
-    final toAdd = desiredRoleIds.difference(currentRoleIds);
-    final toRemove = currentRoleIds.difference(desiredRoleIds);
-
     state = state.copyWith(isLoading: true, clearError: true);
 
     try {
+      // The diff is computed against what the server holds right now, not the
+      // cached copy in state. A list loaded a minute ago can already be stale —
+      // another admin removing a role would otherwise be silently undone here,
+      // because this would "keep" a role the server no longer has. It also
+      // means a deleted user surfaces as the backend's 404 instead of throwing
+      // out of firstWhere before the try block is even entered.
+      final current = await _api.getUserById(userId);
+      final currentRoleIds = current.roles.map((r) => r.roleId).toSet();
+
+      final toAdd = desiredRoleIds.difference(currentRoleIds);
+      final toRemove = currentRoleIds.difference(desiredRoleIds);
+
       for (final roleId in toAdd) {
         await _api.assignRoleToUser(userId, roleId);
       }

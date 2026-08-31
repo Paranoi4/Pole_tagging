@@ -5,8 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/api_providers.dart';
+import 'package:frontend/providers/batch_provider.dart';
 import 'package:frontend/providers/crew_provider.dart';
 import 'package:frontend/providers/du_provider.dart';
+import 'package:frontend/providers/role_provider.dart';
+import 'package:frontend/providers/user_provider.dart';
+import 'package:frontend/providers/work_order_provider.dart';
 import 'package:frontend/services/api_services.dart';
 
 class AuthState {
@@ -70,6 +74,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   void _resetOrgScopedCaches() {
     _ref.invalidate(duProvider);
     _ref.invalidate(crewProvider);
+    _ref.invalidate(userProvider);
+    _ref.invalidate(roleProvider);
+    _ref.invalidate(batchProvider);
+    _ref.invalidate(workOrderProvider);
   }
 
   static DateTime? parseTokenExpiry(String token) {
