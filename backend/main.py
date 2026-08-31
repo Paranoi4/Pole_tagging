@@ -1,44 +1,50 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
+
 from config.database import engine, Base, get_db
 import models.models as models
 from models.enums import OrgCode, RoleName
+from router import (
+    auth, me, users, roles, user_roles,
+    du, work_orders, batches, tags, cities, crews,
+)
 
-# ============================================================
-# CREATE MISSING TABLES ONLY
-# ============================================================
-# print("Creating any missing tables...")
 Base.metadata.create_all(bind=engine)
-# ============================================================
 
-# ===== SEED FIXED ROLES =====
-def seed_roles():
+
+def seed_roles() -> None:
     db = next(get_db())
+    seeded = 0
     try:
-        orgs = [org.value for org in OrgCode]
-        for org in orgs:
-            for role_name in (role.value for role in RoleName):
+        for org in OrgCode:
+            for role in RoleName:
                 existing = db.query(models.Role).filter(
-                    models.Role.role_name == role_name,
-                    models.Role.org_code == org
+                    models.Role.role_name == role.value,
+                    models.Role.org_code == org.value,
                 ).first()
                 if not existing:
-                    db.add(models.Role(role_name=role_name, org_code=org))
+                    db.add(models.Role(role_name=role.value, org_code=org.value))
+                    seeded += 1
         db.commit()
-        print("✅ Roles seeded successfully!")
-    except Exception as e:
-        print(f"⚠️ Error seeding roles: {e}")
+    except IntegrityError:
         db.rollback()
+        seeded = 0
+    except Exception as exc:
+        print(f"WARNING: could not seed roles: {exc}")
+        db.rollback()
+        return
     finally:
         db.close()
 
-seed_roles()
+    print(f"Roles ready ({seeded} created)." if seeded else "Roles ready.")
 
-# Import routers
-from router import users, roles, auth, user_roles, me, du, tags, batches, work_orders, crews, cities
+
+seed_roles()
 
 app = FastAPI(title="Poletagging API")
 
+# TODO: narrow to the Flutter client's origin before production.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,19 +52,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def root():
     return {"message": "Poletagging API is running"}
 
-# Include routers
-app.include_router(auth.router)
-app.include_router(me.router)
-app.include_router(users.router)
-app.include_router(roles.router)
-app.include_router(user_roles.router)
-app.include_router(du.router)
-app.include_router(tags.router)
-app.include_router(batches.router)
-app.include_router(work_orders.router)
-app.include_router(crews.router)
-app.include_router(cities.router) 
+
+for router in (
+    auth.router,
+    me.router,
+    users.router,
+    roles.router,
+    user_roles.router,
+    du.router,
+    work_orders.router,
+    batches.router,
+    tags.router,
+    cities.router,
+    crews.router,
+):
+    app.include_router(router)
