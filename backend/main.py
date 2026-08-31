@@ -8,7 +8,6 @@ import models.models as models
 # ============================================================
 # print("Creating any missing tables...")
 Base.metadata.create_all(bind=engine)
-# print("✅ Tables ready")
 # ============================================================
 
 # ===== SEED FIXED ROLES =====
@@ -60,5 +59,5 @@ app.include_router(du.router)
 app.include_router(tags.router)
 app.include_router(batches.router)
 app.include_router(work_orders.router)
-app.include_router(crews.router)  # ✅ add this line
+app.include_router(crews.router)
 app.include_router(cities.router) 

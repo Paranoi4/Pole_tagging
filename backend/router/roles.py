@@ -24,17 +24,17 @@ router = APIRouter(
 def create_role(
     role: schemas.RoleCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     if db.query(models.Role).filter(
         models.Role.role_name == role.role_name,
-        models.Role.org_code == current_user.org_code  # ✅ ADD THIS
+        models.Role.org_code == current_user.org_code
     ).first():
         raise HTTPException(status_code=400, detail="Role already exists")
     
     db_role = models.Role(
         **role.model_dump(),
-        org_code=current_user.org_code  # ✅ ADD THIS
+        org_code=current_user.org_code
     )
     db.add(db_role)
     db.commit()
@@ -48,9 +48,8 @@ def list_roles(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
-    # ✅ Filter by org_code
     return db.query(models.Role).filter(
         models.Role.org_code == current_user.org_code
     ).offset(skip).limit(limit).all()
@@ -79,11 +78,11 @@ def update_role(
     role_id: int,
     patch: schemas.RoleUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     role = db.query(models.Role).filter(
         models.Role.role_id == role_id,
-        models.Role.org_code == current_user.org_code  # ← ADD THIS
+        models.Role.org_code == current_user.org_code
     ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -93,7 +92,7 @@ def update_role(
     if data.get("role_name") and data["role_name"] != role.role_name:
         if db.query(models.Role).filter(
             models.Role.role_name == data["role_name"],
-            models.Role.org_code == current_user.org_code  # ← ADD THIS
+            models.Role.org_code == current_user.org_code
         ).first():
             raise HTTPException(status_code=400, detail="Role already exists in this organization")
     
@@ -110,11 +109,11 @@ def update_role(
 def delete_role(
     role_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     role = db.query(models.Role).filter(
         models.Role.role_id == role_id,
-        models.Role.org_code == current_user.org_code  # ← ADD THIS
+        models.Role.org_code == current_user.org_code
     ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")

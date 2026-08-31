@@ -21,12 +21,12 @@ router = APIRouter(
 def assign_role_to_user(
     payload: schemas.UserRoleCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     # Check if user exists AND belongs to same org
     user = db.query(models.User).filter(
         models.User.user_id == payload.user_id,
-        models.User.org_code == current_user.org_code  # ✅ ADD THIS
+        models.User.org_code == current_user.org_code
     ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -34,7 +34,7 @@ def assign_role_to_user(
     # Check if role exists AND belongs to same org
     role = db.query(models.Role).filter(
         models.Role.role_id == payload.role_id,
-        models.Role.org_code == current_user.org_code  # ✅ ADD THIS
+        models.Role.org_code == current_user.org_code
     ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -49,7 +49,7 @@ def assign_role_to_user(
     
     db_user_role = models.UserRole(
         **payload.model_dump(),
-        org_code=current_user.org_code  # ✅ ADD THIS
+        org_code=current_user.org_code
     )
     db.add(db_user_role)
     db.commit()

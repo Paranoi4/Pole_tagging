@@ -45,7 +45,7 @@ def create_work_order(
     # ============================================================
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == work_order.du_id,
-        models.DistributionUtility.org_code == current_user.org_code  # ✅ org_code check
+        models.DistributionUtility.org_code == current_user.org_code
     ).first()
     
     if not du or not du.is_active:
@@ -74,7 +74,7 @@ def create_work_order(
         work_order_code=work_order_code,
         description=work_order.description,
         created_by=current_user.user_id,
-        org_code=current_user.org_code,  # ✅ ADD THIS
+        org_code=current_user.org_code,
     )
     db.add(db_work_order)
     db.commit()
@@ -117,7 +117,6 @@ def get_work_order(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Get a single Work Order by ID."""
     work_order = db.query(models.WorkOrder).filter(
         models.WorkOrder.work_order_id == work_order_id,
         models.WorkOrder.org_code == current_user.org_code,
@@ -136,11 +135,11 @@ def update_work_order(
     work_order_id: int,
     patch: schemas.WorkOrderUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     work_order = db.query(models.WorkOrder).filter(
         models.WorkOrder.work_order_id == work_order_id,
-        models.WorkOrder.org_code == current_user.org_code  # ← ADD THIS
+        models.WorkOrder.org_code == current_user.org_code
     ).first()
     if not work_order:
         raise HTTPException(status_code=404, detail="Work Order not found")
@@ -163,11 +162,11 @@ def update_work_order(
 def delete_work_order(
     work_order_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     work_order = db.query(models.WorkOrder).filter(
         models.WorkOrder.work_order_id == work_order_id,
-        models.WorkOrder.org_code == current_user.org_code  # ← ADD THIS
+        models.WorkOrder.org_code == current_user.org_code
     ).first()
     if not work_order:
         raise HTTPException(status_code=404, detail="Work Order not found")

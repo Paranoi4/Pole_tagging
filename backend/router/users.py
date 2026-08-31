@@ -23,7 +23,7 @@ router = APIRouter(
 def create_user(
     user: schemas.UserCreateAdmin,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← ADD THIS LINE
+    current_user: models.User = Depends(get_current_user)
 ):
     # Check if username exists
     if db.query(models.User).filter(models.User.username == user.username).first():
@@ -51,7 +51,7 @@ def create_user(
         username=user.username,
         password=get_password_hash(user.password),
         auth_provider="local",
-        org_code=current_user.org_code,  # ✅ FIXED
+        org_code=current_user.org_code,
     )
     db.add(db_user)
     db.flush()
@@ -60,7 +60,7 @@ def create_user(
         db.add(models.UserRole(
             user_id=db_user.user_id,
             role_id=role_id,
-            org_code=current_user.org_code,  # ✅ FIXED (was user.org_code)
+            org_code=current_user.org_code,
         ))
 
     db.commit()
@@ -154,12 +154,12 @@ def update_user(
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     """Admin can only delete users within their own organization."""
     user = db.query(models.User).filter(
         models.User.user_id == user_id,
-        models.User.org_code == current_user.org_code  # ✅ ADD THIS
+        models.User.org_code == current_user.org_code
     ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -177,12 +177,12 @@ def delete_user(
 def get_user_by_username(
     username: str,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     """Get a user by username. Only shows users from the same organization."""
     user = db.query(models.User).filter(
         models.User.username == username,
-        models.User.org_code == current_user.org_code  # ✅ ADD THIS
+        models.User.org_code == current_user.org_code
     ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

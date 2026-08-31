@@ -137,23 +137,22 @@ def get_du_with_stats(
         models.Tag.org_code == current_user.org_code,
     ).count()
     
-    # ✅ ADD org_code to all status counts
     available = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
         models.Tag.status == "Available",
-        models.Tag.org_code == current_user.org_code  # ✅ ADDED
+        models.Tag.org_code == current_user.org_code
     ).count()
     
     printed = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
         models.Tag.status == "Printed",
-        models.Tag.org_code == current_user.org_code  # ✅ ADDED
+        models.Tag.org_code == current_user.org_code
     ).count()
     
     dispatched = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
         models.Tag.status == "Dispatched",
-        models.Tag.org_code == current_user.org_code  # ✅ ADDED
+        models.Tag.org_code == current_user.org_code
     ).count()
     
     return {
@@ -174,12 +173,12 @@ def update_du(
     du_id: int,
     patch: schemas.DUUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADDED
+    current_user: models.User = Depends(get_current_user),
 ):
     """Update a DU."""
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == du_id,
-        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+        models.DistributionUtility.org_code == current_user.org_code
     ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
@@ -224,14 +223,14 @@ def delete_du(
     """
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == du_id,
-        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+        models.DistributionUtility.org_code == current_user.org_code
     ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     
     tags_count = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.org_code == current_user.org_code  # ✅ ADDED
+        models.Tag.org_code == current_user.org_code
     ).count()
     
     du_name = du.du_name
@@ -258,12 +257,12 @@ def delete_du(
 def deactivate_du(
     du_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADDED
+    current_user: models.User = Depends(get_current_user),
 ):
     """SOFT DELETE a DU (Just deactivates it, tags remain)."""
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == du_id,
-        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+        models.DistributionUtility.org_code == current_user.org_code
     ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
@@ -292,12 +291,12 @@ def deactivate_du(
 def reactivate_du(
     du_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ✅ ADDED
+    current_user: models.User = Depends(get_current_user),
 ):
     """Reactivate a deactivated DU."""
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == du_id,
-        models.DistributionUtility.org_code == current_user.org_code  # ✅ ADDED
+        models.DistributionUtility.org_code == current_user.org_code
     ).first()
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")

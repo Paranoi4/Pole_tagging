@@ -68,7 +68,15 @@ def login(
             detail="This account uses Google sign-in. Please continue with Google.",
         )
 
-    if not verify_password(request.password, user.password):
+    # A stored hash that is empty or malformed (a hand-edited row, a partial
+    # import) makes passlib raise instead of returning False. Treat it as a
+    # failed password so the caller gets a normal 401 rather than a 500.
+    try:
+        password_ok = verify_password(request.password, user.password)
+    except Exception:
+        password_ok = False
+
+    if not password_ok:
         user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
 
         if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
@@ -133,22 +141,40 @@ def google_callback(code: str, db: Session = Depends(get_db)):
             detail="Google OAuth credentials are missing. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
         )
 
-    token_response = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_REDIRECT_URI,
-            "grant_type": "authorization_code",
-        },
-        timeout=20,
-    )
+    # Outbound call to Google: a timeout or a dead connection raises here, and
+    # that is an upstream problem, not a bad request — report it as 503 so the
+    # caller knows to retry rather than seeing a bare 500.
+    try:
+        token_response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not reach Google to complete sign-in. Please try again.",
+        ) from exc
 
     if token_response.status_code != 200:
         raise HTTPException(status_code=400, detail="Google token exchange failed")
 
-    token_data = token_response.json()
+    # A 200 with a body that is not JSON (a proxy's error page, an empty
+    # response) would otherwise raise straight out of the handler.
+    try:
+        token_data = token_response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Google returned an unreadable response. Please try again.",
+        ) from exc
+
     id_token_value = token_data.get("id_token")
     if not id_token_value:
         raise HTTPException(status_code=400, detail="Google did not return an ID token")

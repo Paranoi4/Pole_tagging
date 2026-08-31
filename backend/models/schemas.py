@@ -6,47 +6,19 @@ from datetime import datetime
 OrgCode = Literal["NP", "BP", "MP"]
 
 # ===== ROLE =====
-class RoleUpdate(BaseModel):
-    role_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    org_code: str  # ✅ ADD THIS
 
 class RoleCreate(BaseModel):
     role_name: str = Field(min_length=1, max_length=100)
+
+class RoleUpdate(BaseModel):
+    role_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    org_code: str
 
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     role_id: int
     role_name: str
     updated_at: Optional[datetime] = None
-
-
-# ===== USER =====
-# class UserCreate(BaseModel):
-#     first_name: str = Field(min_length=1, max_length=255)
-#     last_name: str = Field(min_length=1, max_length=255)
-#     middle_name: Optional[str] = None
-#     suffix: Optional[str] = None
-#     email: EmailStr
-#     contact: Optional[str] = None
-#     username: str = Field(min_length=3, max_length=50)
-#     password: str = Field(min_length=8, max_length=72)
-#     org_code: OrgCode
-
-
-# class UserCreateAdmin(UserCreate):
-#     role_ids: list[int] = []
-
-
-# class UserUpdate(BaseModel):
-#     first_name: Optional[str] = None
-#     last_name: Optional[str] = None
-#     middle_name: Optional[str] = None
-#     suffix: Optional[str] = None
-#     email: Optional[EmailStr] = None
-#     contact: Optional[str] = None
-#     username: Optional[str] = None
-#     is_active: Optional[bool] = None
-#     org_code: Optional[str] = None  # ✅ ADD THIS
 
 class UserBase(BaseModel):
     first_name: str = Field(min_length=1, max_length=255)
@@ -60,14 +32,18 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    org_code: OrgCode  # ✅ KEPT for self-registration
+    # Self-registration picks its own org. No role_ids here, so nobody can
+    # grant themselves a role by signing up.
+    org_code: OrgCode
 
 
 class UserCreateAdmin(UserBase):
-    role_ids: list[int] = []  # ❌ NO org_code - uses admin's org from token
+    # No org_code: the server takes it from the creating admin's token.
+    role_ids: list[int] = []
 
 
 class UserUpdate(BaseModel):
+    # No org_code: users can't move themselves to another organization.
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
@@ -76,7 +52,6 @@ class UserUpdate(BaseModel):
     contact: Optional[str] = None
     username: Optional[str] = None
     is_active: Optional[bool] = None
-    # ❌ REMOVED org_code - users can't change organization
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -93,7 +68,7 @@ class UserOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     roles: list[RoleOut] = []
-    org_code: str  # ✅ ADD THIS
+    org_code: str
 
 # ===== USER ROLE =====
 class UserRoleCreate(BaseModel):
@@ -132,7 +107,7 @@ class LoginResponse(TokenResponse):
 class DUCreate(BaseModel):
     du_name: str = Field(min_length=1, max_length=255)
     du_code: str = Field(min_length=1, max_length=255)
-    org_code: str = Field(min_length=2, max_length=10)  # ✅ MANUAL ORG CODE INPUT
+    org_code: str = Field(min_length=2, max_length=10)
 
 
 class DUUpdate(BaseModel):
@@ -150,7 +125,7 @@ class DUOut(BaseModel):
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     creator: Optional[UserOut] = None
-    org_code: str  # ✅ ADD THIS
+    org_code: str
 
 
 class DUWithStats(DUOut):
@@ -195,7 +170,7 @@ class WorkOrderOut(BaseModel):
     
     du: Optional[DUOut] = None
     batches: List["BatchSummary"] = []
-    org_code: str  # ✅ ADD THIS
+    org_code: str
 
 # ============================================================
 # BATCH
@@ -239,7 +214,7 @@ class BatchOut(BaseModel):
     work_order: Optional[WorkOrderSummary] = None
     tags: List["TagOut"] = []
     assigned_crew: Optional[UserOut] = None
-    org_code: str  # ✅ ADD THIS
+    org_code: str
 
 # ============================================================
 # TAG
@@ -275,7 +250,7 @@ class TagOut(BaseModel):
     
     du: Optional[DUOut] = None
     batch: Optional[BatchSummary] = None
-    org_code: str  # ✅ ADD THIS
+    org_code: str
     @property
     def full_tag(self) -> str:
         return self.tag_code

@@ -47,7 +47,7 @@ def create_batch(
     # ============================================================
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == batch.du_id,
-        models.DistributionUtility.org_code == current_user.org_code  # ✅ org_code check
+        models.DistributionUtility.org_code == current_user.org_code
     ).first()
     
     if not du or not du.is_active:
@@ -61,7 +61,7 @@ def create_batch(
     # ============================================================
     work_order = db.query(models.WorkOrder).filter(
         models.WorkOrder.work_order_id == batch.work_order_id,
-        models.WorkOrder.org_code == current_user.org_code  # ✅ org_code check
+        models.WorkOrder.org_code == current_user.org_code
     ).first()
     
     if not work_order:
@@ -80,7 +80,7 @@ def create_batch(
         models.Tag.du_id == batch.du_id,
         models.Tag.status == "Available",
         models.Tag.batch_id == None,
-        models.Tag.org_code == current_user.org_code  # ✅ org_code check
+        models.Tag.org_code == current_user.org_code
     ).count()
     
     if available_count < batch.quantity:
@@ -105,7 +105,7 @@ def create_batch(
         status="Pending",
         assigned_to=batch.assigned_to,
         created_by=current_user.user_id,
-        org_code=current_user.org_code,  # ✅ ADD THIS
+        org_code=current_user.org_code,
     )
     db.add(db_batch)
     db.flush()
@@ -117,12 +117,13 @@ def create_batch(
         models.Tag.du_id == batch.du_id,
         models.Tag.status == "Available",
         models.Tag.batch_id == None,
-        models.Tag.org_code == current_user.org_code  # ✅ org_code check
+        models.Tag.org_code == current_user.org_code
     ).limit(batch.quantity).all()
     
+    # Tags are claimed by the batch but stay "Available" — the print flow
+    # (PATCH /tags/{id}/status) is what marks them Printed.
     for tag in tags_to_assign:
         tag.batch_id = db_batch.batch_id
-        # tag.status = "Printed"  # ← COMMENTED OUT for print button flow
         tag.updated_by = current_user.user_id
         tag.updated_at = datetime.utcnow()
     
@@ -211,7 +212,7 @@ def update_batch_status(
 ):
     batch = db.query(models.Batch).filter(
         models.Batch.batch_id == batch_id,
-        models.Batch.org_code == current_user.org_code  # ← ADD THIS
+        models.Batch.org_code == current_user.org_code
     ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -235,7 +236,7 @@ def assign_crew_to_batch(
 ):
     batch = db.query(models.Batch).filter(
         models.Batch.batch_id == batch_id,
-        models.Batch.org_code == current_user.org_code  # ← ADD THIS
+        models.Batch.org_code == current_user.org_code
     ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -256,11 +257,11 @@ def assign_crew_to_batch(
 def delete_batch(
     batch_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # ← ADD THIS
+    current_user: models.User = Depends(get_current_user),
 ):
     batch = db.query(models.Batch).filter(
         models.Batch.batch_id == batch_id,
-        models.Batch.org_code == current_user.org_code  # ← ADD THIS
+        models.Batch.org_code == current_user.org_code
     ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")

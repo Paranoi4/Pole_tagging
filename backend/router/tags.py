@@ -22,7 +22,6 @@ def get_available_tags(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # ✅ Check if DU belongs to user's org
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == du_id,
         models.DistributionUtility.org_code == current_user.org_code
@@ -33,7 +32,7 @@ def get_available_tags(
     tags = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
         models.Tag.status == "Available",
-        models.Tag.org_code == current_user.org_code  # ✅ ADD THIS
+        models.Tag.org_code == current_user.org_code
     ).limit(limit).all()
     
     return tags
@@ -53,7 +52,6 @@ def update_tag_status(
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
     
-    # ✅ Check if tag belongs to user's org
     if tag.org_code != current_user.org_code:
         raise HTTPException(status_code=403, detail="You don't have access to this tag")
     
@@ -80,10 +78,9 @@ def bulk_update_status(
     if len(tag_ids) > 100:
         raise HTTPException(status_code=400, detail="Maximum 100 tags per bulk update")
     
-    # ✅ Add org_code filter
     tags = db.query(models.Tag).filter(
         models.Tag.tag_id.in_(tag_ids),
-        models.Tag.org_code == current_user.org_code  # ← ADD THIS!
+        models.Tag.org_code == current_user.org_code
     ).all()
     
     if len(tags) != len(tag_ids):
@@ -146,7 +143,6 @@ def get_tag_stats(
     current_user: models.User = Depends(get_current_user),
 ):
     """Get tag statistics for a DU."""
-    # ✅ Check DU exists and belongs to user's org
     du = db.query(models.DistributionUtility).filter(
         models.DistributionUtility.du_id == du_id,
         models.DistributionUtility.org_code == current_user.org_code
@@ -154,10 +150,9 @@ def get_tag_stats(
     if not du:
         raise HTTPException(status_code=404, detail="DU not found")
     
-    # ✅ Filter tags by both du_id AND org_code
     total = db.query(models.Tag).filter(
         models.Tag.du_id == du_id,
-        models.Tag.org_code == current_user.org_code  # ← ADD THIS
+        models.Tag.org_code == current_user.org_code
     ).count()
     
     status_counts = {}
@@ -165,7 +160,7 @@ def get_tag_stats(
         count = db.query(models.Tag).filter(
             models.Tag.du_id == du_id,
             models.Tag.status == status,
-            models.Tag.org_code == current_user.org_code  # ← ADD THIS
+            models.Tag.org_code == current_user.org_code
         ).count()
         status_counts[status] = count
     

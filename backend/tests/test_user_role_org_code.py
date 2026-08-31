@@ -23,7 +23,6 @@ class UserRoleOrgCodeTest(unittest.TestCase):
         self.session.close()
 
     def test_create_user_sets_org_code_from_current_user(self):
-        # ✅ Create a mock admin user
         current_user = models.User(
             user_id=1,
             username="admin_np",
@@ -31,7 +30,6 @@ class UserRoleOrgCodeTest(unittest.TestCase):
             is_active=True,
         )
         
-        # ✅ Remove org_code from payload (field no longer exists)
         payload = UserCreateAdmin(
             first_name="roan",
             last_name="roan",
@@ -41,13 +39,11 @@ class UserRoleOrgCodeTest(unittest.TestCase):
             contact="09277709812",
             username="roanroan",
             password="roanroan",
-            role_ids=[1],  # ✅ Use role_id=1 to match test
+            role_ids=[1],
         )
 
-        # ✅ Pass current_user to create_user
         user = create_user(payload, self.session, current_user)
         
-        # ✅ Assertions
         self.assertEqual(user.org_code, "NP")
         record = self.session.query(models.UserRole).first()
         self.assertIsNotNone(record)
