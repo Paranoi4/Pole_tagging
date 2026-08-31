@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.database import engine, Base, get_db
 import models.models as models
+from models.enums import OrgCode, RoleName
 
 # ============================================================
 # CREATE MISSING TABLES ONLY
@@ -14,9 +15,9 @@ Base.metadata.create_all(bind=engine)
 def seed_roles():
     db = next(get_db())
     try:
-        orgs = ["NP", "BP", "MP"]
+        orgs = [org.value for org in OrgCode]
         for org in orgs:
-            for role_name in ("Admin", "Printerman", "Dispatcher"):
+            for role_name in (role.value for role in RoleName):
                 existing = db.query(models.Role).filter(
                     models.Role.role_name == role_name,
                     models.Role.org_code == org

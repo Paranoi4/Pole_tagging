@@ -5,6 +5,7 @@ from typing import Optional, List
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, require_role
 from utils.tag_encoding import generate_all_tags_for_du
 
@@ -18,7 +19,7 @@ router = APIRouter(
 # 1. CREATE DU (AUTO-GENERATES ALL 1,048,575 TAGS WITH PREFIX)
 # ============================================================
 
-@router.post("", response_model=schemas.DUOut, dependencies=[Depends(require_role("Admin"))])
+@router.post("", response_model=schemas.DUOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def create_du(
     du: schemas.DUCreate,
     db: Session = Depends(get_db),
@@ -38,18 +39,20 @@ def create_du(
     ).first():
         raise HTTPException(status_code=400, detail="DU name already exists")
     
-    # Create DU
+    # org_code comes from the creating admin, never from the request body —
+    # otherwise an NP admin could create a DU inside BP, or invent an org code
+    # that no user can see.
     db_du = models.DistributionUtility(
         du_name=du.du_name,
         du_code=du.du_code,
         created_by=current_user.user_id,
-        org_code=du.org_code,
+        org_code=current_user.org_code,
     )
     db.add(db_du)
     db.flush()
-    
+
     # AUTO-GENERATE ALL 1,048,575 TAGS WITH DU PREFIX
-    tags = generate_all_tags_for_du(db_du.du_id, db_du.du_code, du.org_code)
+    tags = generate_all_tags_for_du(db_du.du_id, db_du.du_code, current_user.org_code)
     db.bulk_insert_mappings(models.Tag, tags)
     
     db.commit()
@@ -168,7 +171,7 @@ def get_du_with_stats(
 # 5. UPDATE DU (FIXED)
 # ============================================================
 
-@router.put("/{du_id}", response_model=schemas.DUOut, dependencies=[Depends(require_role("Admin"))])
+@router.put("/{du_id}", response_model=schemas.DUOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def update_du(
     du_id: int,
     patch: schemas.DUUpdate,
@@ -210,7 +213,7 @@ def update_du(
 # 6. DELETE DU (HARD DELETE - FIXED)
 # ============================================================
 
-@router.delete("/{du_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/{du_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def delete_du(
     du_id: int,
     db: Session = Depends(get_db),
@@ -253,7 +256,7 @@ def delete_du(
 # 7. SOFT DELETE DU (Deactivate - FIXED)
 # ============================================================
 
-@router.patch("/{du_id}/deactivate", dependencies=[Depends(require_role("Admin"))])
+@router.patch("/{du_id}/deactivate", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def deactivate_du(
     du_id: int,
     db: Session = Depends(get_db),
@@ -287,7 +290,7 @@ def deactivate_du(
 # 8. REACTIVATE DU (FIXED)
 # ============================================================
 
-@router.patch("/{du_id}/reactivate", response_model=schemas.DUOut, dependencies=[Depends(require_role("Admin"))])
+@router.patch("/{du_id}/reactivate", response_model=schemas.DUOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def reactivate_du(
     du_id: int,
     db: Session = Depends(get_db),

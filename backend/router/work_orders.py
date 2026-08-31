@@ -6,6 +6,7 @@ from datetime import datetime
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/work-orders", tags=["Work Orders"])
@@ -32,7 +33,7 @@ def generate_work_order_code(du_code: str, db: Session) -> str:
 # 1. CREATE WORK ORDER (AUTO-GENERATES CODE)
 # ============================================================
 
-@router.post("", response_model=schemas.WorkOrderOut, dependencies=[Depends(require_role("Admin"))])
+@router.post("", response_model=schemas.WorkOrderOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def create_work_order(
     work_order: schemas.WorkOrderCreate,
     db: Session = Depends(get_db),
@@ -130,7 +131,7 @@ def get_work_order(
 # 4. UPDATE WORK ORDER
 # ============================================================
 
-@router.put("/{work_order_id}", response_model=schemas.WorkOrderOut, dependencies=[Depends(require_role("Admin"))])
+@router.put("/{work_order_id}", response_model=schemas.WorkOrderOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def update_work_order(
     work_order_id: int,
     patch: schemas.WorkOrderUpdate,
@@ -158,7 +159,7 @@ def update_work_order(
 # 5. DELETE WORK ORDER
 # ============================================================
 
-@router.delete("/{work_order_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/{work_order_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def delete_work_order(
     work_order_id: int,
     db: Session = Depends(get_db),

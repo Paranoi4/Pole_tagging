@@ -5,12 +5,13 @@ from typing import List, Optional
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/cities", tags=["Cities"])
 
 
-@router.post("", response_model=schemas.CityOut, dependencies=[Depends(require_role("Admin"))])
+@router.post("", response_model=schemas.CityOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def create_city(
     city: schemas.CityCreate,
     db: Session = Depends(get_db),
@@ -66,7 +67,7 @@ def get_city(
 
 
 # ===== UPDATE CITY =====
-@router.put("/{city_id}", response_model=schemas.CityOut, dependencies=[Depends(require_role("Admin"))])
+@router.put("/{city_id}", response_model=schemas.CityOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def update_city(
     city_id: int,
     patch: schemas.CityUpdate,
@@ -101,7 +102,7 @@ def update_city(
 
 
 # ===== DELETE CITY =====
-@router.delete("/{city_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/{city_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def delete_city(
     city_id: int,
     db: Session = Depends(get_db),

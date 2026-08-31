@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from config.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_SECONDS
 from config.database import get_db
 import models.models as models
+from models.enums import RoleName
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -63,22 +64,27 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return user
 
 
-def require_role(*allowed_roles: str):
+def require_role(*allowed_roles: "RoleName | str"):
     """Dependency factory: restricts a route to users holding at least one of
     the given role names. A user can hold multiple roles (e.g. Printerman AND
     Dispatcher) — this only requires overlap, not an exact match.
 
+    Accepts RoleName members or plain strings; both are compared as their
+    string value against `roles.role_name`.
+
     Usage:
-        @router.post("", dependencies=[Depends(require_role("Admin"))])
+        @router.post("", dependencies=[Depends(require_role(RoleName.ADMIN))])
     or, if you need the resolved user in the route body:
-        def my_route(current_user = Depends(require_role("Admin"))):
+        def my_route(current_user = Depends(require_role(RoleName.ADMIN))):
     """
+    allowed = {str(role) for role in allowed_roles}
+
     def role_checker(current_user: models.User = Depends(get_current_user)):
         user_role_names = {r.role_name for r in current_user.roles}
-        if user_role_names.isdisjoint(allowed_roles):
+        if user_role_names.isdisjoint(allowed):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires one of these roles: {', '.join(allowed_roles)}",
+                detail=f"Requires one of these roles: {', '.join(sorted(allowed))}",
             )
         return current_user
     return role_checker

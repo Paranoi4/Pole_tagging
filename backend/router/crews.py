@@ -5,12 +5,13 @@ from typing import List,  Optional
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/crews", tags=["Crews"])
 
 
-@router.post("", response_model=schemas.CrewOut, dependencies=[Depends(require_role("Admin"))])
+@router.post("", response_model=schemas.CrewOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def create_crew(
     crew: schemas.CrewCreate,
     db: Session = Depends(get_db),
@@ -73,7 +74,7 @@ def get_crew(
     return crew
 
 # ===== UPDATE CREW =====
-@router.put("/{crew_id}", response_model=schemas.CrewOut, dependencies=[Depends(require_role("Admin"))])
+@router.put("/{crew_id}", response_model=schemas.CrewOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def update_crew(
     crew_id: int,
     patch: schemas.CrewUpdate,
@@ -109,7 +110,7 @@ def update_crew(
 
 
 # ===== DELETE CREW =====
-@router.delete("/{crew_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/{crew_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def delete_crew(
     crew_id: int,
     db: Session = Depends(get_db),

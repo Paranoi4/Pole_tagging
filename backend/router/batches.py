@@ -6,6 +6,7 @@ from datetime import datetime
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
@@ -34,7 +35,7 @@ def generate_batch_code(du_code: str, db: Session) -> str:
 
 # router/batches.py
 
-@router.post("", response_model=schemas.BatchOut, dependencies=[Depends(require_role("Printerman", "Admin"))])
+@router.post("", response_model=schemas.BatchOut, dependencies=[Depends(require_role(RoleName.PRINTERMAN, RoleName.ADMIN))])
 def create_batch(
     batch: schemas.BatchCreate,
     db: Session = Depends(get_db),
@@ -253,7 +254,7 @@ def assign_crew_to_batch(
 # ============================================================
 
 
-@router.delete("/{batch_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/{batch_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def delete_batch(
     batch_id: int,
     db: Session = Depends(get_db),

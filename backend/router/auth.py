@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from datetime import timedelta, datetime
 from urllib.parse import urlencode
 import requests
@@ -12,6 +13,7 @@ from google.auth.transport import requests as google_requests
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import OrgCode
 from config.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, FRONTEND_URL  
 from utils.auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_SECONDS
 
@@ -133,6 +135,19 @@ def google_login():
     return RedirectResponse(google_auth_url)
 
 
+def _unique_username_from_email(email: str, db: Session) -> str:
+    """Derive a username from the email's local part, adding a numeric suffix
+    if it is already taken. Two people named `roan` at different companies is
+    ordinary, and `username` is unique across the whole table."""
+    base = email.split("@")[0].strip() or "user"
+    candidate = base
+    suffix = 1
+    while db.query(models.User).filter(models.User.username == candidate).first():
+        suffix += 1
+        candidate = f"{base}{suffix}"
+    return candidate
+
+
 @router.get("/google/callback")
 def google_callback(code: str, db: Session = Depends(get_db)):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
@@ -198,14 +213,26 @@ def google_callback(code: str, db: Session = Depends(get_db)):
             first_name=(google_user.get("given_name") or "Google").strip() or "Google",
             last_name=(google_user.get("family_name") or "User").strip() or "User",
             email=email,
-            username=email.split("@")[0],
+            username=_unique_username_from_email(email, db),
             password=get_password_hash("google-oauth-user"),
             auth_provider="google",
             google_id=google_user.get("sub"),
-            org_code="NP", 
+            # TODO: Google sign-in cannot tell which organization the person
+            # belongs to. Every Google account lands in NP until the flow
+            # carries the user's choice through.
+            org_code=OrgCode.NP.value,
         )
         db.add(user)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            # Another request claimed the same username between the check above
+            # and this commit. Rare, but it would otherwise surface as a 500.
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Could not create the account. Please try signing in again.",
+            ) from exc
         db.refresh(user)
 
     if not user.is_active:
@@ -221,9 +248,6 @@ def google_callback(code: str, db: Session = Depends(get_db)):
         f"{access_token}&username={user.username}"
     )
     return RedirectResponse(redirect_url)
-
-# ===== REGISTER =====
-# router/auth.py
 
 # ===== REGISTER =====
 @router.post("/register", response_model=schemas.UserOut)
@@ -253,7 +277,18 @@ def register(
         org_code=user.org_code,
     )
     db.add(db_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # The checks above are check-then-insert: two simultaneous registrations
+        # for the same username or email both pass them, and the database's
+        # unique constraint rejects the second. Report it as the 400 the caller
+        # would have got a moment earlier, not a 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Username or email already exists",
+        ) from exc
     db.refresh(db_user)
 
     return schemas.UserOut.model_validate(db_user)

@@ -1,9 +1,8 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Literal, Optional, List
+from typing import Optional, List
 from datetime import datetime
-# The only orgs this deployment serves. Centralized here so every schema
-# stays in sync — add a new org by editing this one line
-OrgCode = Literal["NP", "BP", "MP"]
+
+from models.enums import OrgCode
 
 # ===== ROLE =====
 
@@ -11,8 +10,9 @@ class RoleCreate(BaseModel):
     role_name: str = Field(min_length=1, max_length=100)
 
 class RoleUpdate(BaseModel):
+    # No org_code: a role belongs to the organization that created it, and
+    # moving one across organizations is never a legitimate edit.
     role_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    org_code: str
 
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -105,9 +105,9 @@ class LoginResponse(TokenResponse):
 # ============================================================
 
 class DUCreate(BaseModel):
+    # No org_code: the server takes it from the creating admin's token.
     du_name: str = Field(min_length=1, max_length=255)
     du_code: str = Field(min_length=1, max_length=255)
-    org_code: str = Field(min_length=2, max_length=10)
 
 
 class DUUpdate(BaseModel):

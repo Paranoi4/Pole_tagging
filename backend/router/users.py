@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, get_password_hash, require_role
 
 router = APIRouter(
@@ -19,7 +21,7 @@ router = APIRouter(
 # ============================================
 # Admin-only: this endpoint can assign roles at creation time, so it carries
 # the same privilege-escalation risk as /user-roles.
-@router.post("", response_model=schemas.UserOut, dependencies=[Depends(require_role("Admin"))])
+@router.post("", response_model=schemas.UserOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def create_user(
     user: schemas.UserCreateAdmin,
     db: Session = Depends(get_db),
@@ -33,10 +35,15 @@ def create_user(
     if db.query(models.User).filter(models.User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    # Reject unknown roles before creating anything
+    # Reject unknown roles before creating anything. Roles are org-scoped, so a
+    # role belonging to another organization must read as "not found" here —
+    # otherwise an NP admin could hang a BP role off an NP user.
     role_ids = list(dict.fromkeys(user.role_ids))
     if role_ids:
-        found = db.query(models.Role).filter(models.Role.role_id.in_(role_ids)).count()
+        found = db.query(models.Role).filter(
+            models.Role.role_id.in_(role_ids),
+            models.Role.org_code == current_user.org_code,
+        ).count()
         if found != len(role_ids):
             raise HTTPException(status_code=404, detail="One or more roles not found")
 
@@ -63,9 +70,20 @@ def create_user(
             org_code=current_user.org_code,
         ))
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # The username/email checks above are check-then-insert: two admins
+        # creating the same username at once both pass them, and the database's
+        # unique constraint rejects the second. Report the 400 it would have
+        # got a moment earlier rather than a 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Username or email already exists",
+        ) from exc
     db.refresh(db_user)
-    
+
     return schemas.UserOut.model_validate(db_user)
 
 # ============================================
@@ -74,7 +92,7 @@ def create_user(
 # Admin-only: this returns every user's email and contact info, not just
 # the caller's own — not something a roleless or non-Admin account should
 # be able to pull just by being logged in.
-@router.get("", response_model=List[schemas.UserOut], dependencies=[Depends(require_role("Admin"))])
+@router.get("", response_model=List[schemas.UserOut], dependencies=[Depends(require_role(RoleName.ADMIN))])
 def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
@@ -92,7 +110,7 @@ def list_users(
 # ============================================
 # GET USER BY ID
 # ============================================
-@router.get("/{user_id}", response_model=schemas.UserOut, dependencies=[Depends(require_role("Admin"))])
+@router.get("/{user_id}", response_model=schemas.UserOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def get_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -112,7 +130,7 @@ def get_user(
 # ============================================
 # UPDATE USER
 # ============================================
-@router.put("/{user_id}", response_model=schemas.UserOut, dependencies=[Depends(require_role("Admin"))])
+@router.put("/{user_id}", response_model=schemas.UserOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def update_user(
     user_id: int,
     patch: schemas.UserUpdate,
@@ -141,7 +159,16 @@ def update_user(
         if value is not None:
             setattr(user, field, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Same check-then-write race as create_user: two admins renaming to the
+        # same username at once both pass the checks above.
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Username or email already exists",
+        ) from exc
     db.refresh(user)
 
     return schemas.UserOut.model_validate(user)
@@ -150,7 +177,7 @@ def update_user(
 # ============================================
 # DELETE USER
 # ============================================
-@router.delete("/{user_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/{user_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -163,7 +190,33 @@ def delete_user(
     ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
+    if user.user_id == current_user.user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot delete your own account.",
+        )
+
+    # Removing the last Admin would leave the organization with nobody able to
+    # manage users, assign roles, or create utilities, and no way back in.
+    if any(r.role_name == RoleName.ADMIN.value for r in user.roles):
+        remaining_admins = (
+            db.query(models.User)
+            .join(models.UserRole, models.UserRole.user_id == models.User.user_id)
+            .join(models.Role, models.Role.role_id == models.UserRole.role_id)
+            .filter(
+                models.User.org_code == current_user.org_code,
+                models.Role.role_name == RoleName.ADMIN.value,
+                models.User.user_id != user.user_id,
+            )
+            .count()
+        )
+        if remaining_admins == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the last Admin in this organization.",
+            )
+
     db.delete(user)
     db.commit()
     return {"message": "User deleted"}
@@ -172,8 +225,10 @@ def delete_user(
 # ============================================
 # GET USER BY USERNAME
 # ============================================
-# users.py
-@router.get("/username/{username}", response_model=schemas.UserOut)
+# Admin-only, like the other reads here: it exposes another person's email and
+# contact number, which no roleless or non-Admin account should be able to pull.
+@router.get("/username/{username}", response_model=schemas.UserOut,
+            dependencies=[Depends(require_role(RoleName.ADMIN))])
 def get_user_by_username(
     username: str,
     db: Session = Depends(get_db),

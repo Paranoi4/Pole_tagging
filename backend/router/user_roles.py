@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from config.database import get_db
 import models.models as models
 import models.schemas as schemas
+from models.enums import RoleName
 from utils.auth import get_current_user, require_role
 
 router = APIRouter(
@@ -17,7 +18,7 @@ router = APIRouter(
 
 
 # ===== ASSIGN ROLE TO USER =====
-@router.post("", response_model=schemas.UserRoleOut, dependencies=[Depends(require_role("Admin"))])
+@router.post("", response_model=schemas.UserRoleOut, dependencies=[Depends(require_role(RoleName.ADMIN))])
 def assign_role_to_user(
     payload: schemas.UserRoleCreate,
     db: Session = Depends(get_db),
@@ -63,7 +64,7 @@ def assign_role_to_user(
 
 
 # ===== REMOVE ROLE FROM USER BY USER AND ROLE ID =====
-@router.delete("/user/{user_id}/role/{role_id}", dependencies=[Depends(require_role("Admin"))])
+@router.delete("/user/{user_id}/role/{role_id}", dependencies=[Depends(require_role(RoleName.ADMIN))])
 def remove_role_by_ids(
     user_id: int,
     role_id: int,
