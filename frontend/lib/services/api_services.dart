@@ -36,6 +36,10 @@ class ApiService {
   /// Stops a misbehaving server from looping forever in [_fetchAllPages].
   static const int _maxPages = 100;
 
+  /// Most tag ids `PATCH /tags/bulk/status` accepts in one call - the handler
+  /// rejects anything above 100 with a 400.
+  static const int maxBulkTagIds = 100;
+
   String? _token;
 
   /// Called by [AuthNotifier]. Pass null on logout.
@@ -406,10 +410,19 @@ class ApiService {
     }
   }
 
-  /// Get work orders for a specific DU
-  Future<List<WorkOrder>> getWorkOrdersForDU(int duId) async {
+  /// Searches the caller's work orders by code or name, for the batch form's
+  /// type-ahead. Pass an empty [search] for the 20 most recent.
+  ///
+  /// The backend caps this at 20 and scopes it to the caller's org, so it is
+  /// safe to call per keystroke (debounce on the UI side).
+  Future<List<WorkOrder>> searchWorkOrders({String search = ''}) async {
+    final trimmed = search.trim();
+    final url = trimmed.isEmpty
+        ? '$baseUrl/work-orders'
+        : '$baseUrl/work-orders?search=${Uri.encodeQueryComponent(trimmed)}';
+
     final response = await _send(() => http.get(
-          Uri.parse('$baseUrl/work-orders?du_id=$duId&limit=100'),
+          Uri.parse(url),
           headers: _authHeaders,
         ));
 
@@ -472,22 +485,26 @@ class ApiService {
     }
   }
 
-  /// Get the most recent batch for a DU
-  Future<Batch?> getLatestBatchForDU(int duId) async {
+  /// The caller's own batch that is still waiting to be printed, or null.
+  ///
+  /// Scoped to the signed-in user, not the org: two printermen on the same
+  /// shift each get the batch they created. Returns null when nothing is
+  /// awaiting print — a normal state, so the screen shows its empty message.
+  Future<Batch?> getMyCurrentBatch() async {
     final response = await _send(() => http.get(
-          Uri.parse('$baseUrl/batches?du_id=$duId&limit=1'),
+          Uri.parse('$baseUrl/batches/my-current'),
           headers: _authHeaders,
         ));
 
     if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      if (data.isEmpty) return null;
-      return Batch.fromJson(data.first);
+      final data = jsonDecode(response.body);
+      if (data == null) return null;
+      return Batch.fromJson(data as Map<String, dynamic>);
     } else {
       throw ApiException.fromResponse(
         response.statusCode,
         response.body,
-        fallback: 'Failed to load latest batch: ${response.statusCode}',
+        fallback: 'Failed to load current batch: ${response.statusCode}',
       );
     }
   }
@@ -525,6 +542,39 @@ class ApiService {
         response.body,
         fallback: 'Failed to update tag status: ${response.statusCode}',
       );
+    }
+  }
+
+  /// Sets the same status on many tags, in chunks the backend will accept.
+  ///
+  /// `PATCH /tags/bulk/status` refuses more than [maxBulkTagIds] ids per call,
+  /// so a 500-tag batch goes out as 5 requests rather than one. The print sheet
+  /// used to update tags one at a time, which meant one request per tag.
+  ///
+  /// Not atomic across chunks: if the third request fails, the first two are
+  /// already committed. Callers should re-read the batch on failure rather than
+  /// assume nothing changed.
+  Future<void> bulkUpdateTagStatus(List<int> tagIds, String status) async {
+    if (tagIds.isEmpty) return;
+
+    for (var start = 0; start < tagIds.length; start += maxBulkTagIds) {
+      final end = (start + maxBulkTagIds).clamp(0, tagIds.length);
+      final chunk = tagIds.sublist(start, end);
+
+      // The endpoint takes tag_ids as a repeated query param, not a JSON body.
+      final query = chunk.map((id) => 'tag_ids=$id').join('&');
+      final response = await _send(() => http.patch(
+            Uri.parse('$baseUrl/tags/bulk/status?$query&status=$status'),
+            headers: _authHeaders,
+          ));
+
+      if (response.statusCode != 200) {
+        throw ApiException.fromResponse(
+          response.statusCode,
+          response.body,
+          fallback: 'Failed to update tag statuses: ${response.statusCode}',
+        );
+      }
     }
   }
 

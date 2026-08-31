@@ -47,11 +47,15 @@ class WorkOrderNotifier extends StateNotifier<WorkOrderState> {
 
   WorkOrderNotifier(this._api) : super(WorkOrderState.initial());
 
-  Future<void> loadWorkOrdersForDU(int duId) async {
+  /// Loads work orders matching [search] — empty for the 20 most recent.
+  ///
+  /// No DU argument: an org owns one DU, so the server's org scoping already
+  /// narrows it to the same rows.
+  Future<void> searchWorkOrders({String search = ''}) async {
     state = state.copyWith(isLoading: true, clearError: true);
 
     try {
-      final workOrders = await _api.getWorkOrdersForDU(duId);
+      final workOrders = await _api.searchWorkOrders(search: search);
       state = state.copyWith(
         workOrders: workOrders,
         isLoading: false,

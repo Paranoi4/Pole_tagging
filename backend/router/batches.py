@@ -190,6 +190,38 @@ def get_next_batch_code(
 
 
 # ============================================================
+# 3. MY CURRENT BATCH (the one still awaiting print)
+# ============================================================
+
+@router.get("/my-current", response_model=Optional[schemas.BatchOut])
+def get_my_current_batch(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The caller's own batch that is still waiting to be printed.
+
+    Scoped to created_by, not just the org: two printermen working the same
+    shift each need to see the batch they made. Returning the org's newest
+    instead would hide one person's work behind the other's, or have both of
+    them print the same batch.
+
+    Returns null rather than 404 when there is none — having nothing awaiting
+    print is a normal state, not an error, and the screen shows its empty
+    message for it.
+    """
+    return (
+        db.query(models.Batch)
+        .filter(
+            models.Batch.org_code == current_user.org_code,
+            models.Batch.created_by == current_user.user_id,
+            models.Batch.status == BatchStatus.PENDING.value,
+        )
+        .order_by(models.Batch.created_at.desc(), models.Batch.batch_id.desc())
+        .first()
+    )
+
+
+# ============================================================
 # 3. GET ALL BATCHES
 # ============================================================
 

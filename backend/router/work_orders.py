@@ -106,27 +106,49 @@ def create_work_order(
 
 
 # ============================================================
-# 2. GET ALL WORK ORDERS
+# 2. SEARCH WORK ORDERS
 # ============================================================
+
+MAX_WORK_ORDER_RESULTS = 20
+
 
 @router.get("", response_model=List[schemas.WorkOrderOut])
 def list_work_orders(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
-    du_id: Optional[int] = Query(None, description="Filter by DU"),
+    search: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=255,
+        description="Case-insensitive match on work order code or name",
+    ),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """List all Work Orders for the current org."""
+    """The caller's work orders, newest first, capped at 20.
+
+    Search rather than pagination, mirroring /cities: this feeds a type-ahead
+    on the batch form, and work orders accumulate indefinitely. The old
+    `limit=100` silently dropped everything past the hundredth, so an older
+    work order became unreachable from the form with nothing to say why.
+
+    No du_id: an organization owns exactly one DU, so the org filter already
+    narrows it to the same rows.
+    """
     query = db.query(models.WorkOrder).filter(
         models.WorkOrder.org_code == current_user.org_code
     )
 
-    if du_id:
-        query = query.filter(models.WorkOrder.du_id == du_id)
+    if search:
+        pattern = f"%{search.strip()}%"
+        query = query.filter(
+            models.WorkOrder.work_order_code.ilike(pattern) |
+            models.WorkOrder.work_order_name.ilike(pattern)
+        )
 
-    items = query.order_by(models.WorkOrder.created_at.desc()).offset(skip).limit(limit).all()
-    return items
+    return (
+        query.order_by(models.WorkOrder.created_at.desc())
+        .limit(MAX_WORK_ORDER_RESULTS)
+        .all()
+    )
 
 
 # ============================================================

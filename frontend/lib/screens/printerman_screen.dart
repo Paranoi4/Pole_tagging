@@ -12,6 +12,8 @@ import 'package:frontend/providers/batch_provider.dart';
 import 'package:frontend/models/batch.dart';
 import 'package:frontend/models/tag.dart';
 import 'package:frontend/providers/api_providers.dart';
+import 'package:frontend/services/tag_sheet_pdf.dart';
+import 'package:printing/printing.dart';
 
 class PrinterManScreen extends ConsumerStatefulWidget {
   final bool showDispatcherShortcut;
@@ -39,6 +41,35 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   // recompute only when the selected DU actually changes.
   DU? _nextCodeDU;
 
+  // Work order type-ahead. The field is searched server-side rather than
+  // filled with a full list: work orders accumulate indefinitely, and the
+  // backend caps a search at 20.
+  final TextEditingController _workOrderController = TextEditingController();
+  final FocusNode _workOrderFocus = FocusNode();
+  String _workOrderQuery = '';
+
+  @override
+  void dispose() {
+    _workOrderController.dispose();
+    _workOrderFocus.dispose();
+    super.dispose();
+  }
+
+  /// Debounced search, so typing does not fire one request per character.
+  /// A query that has been superseded returns nothing — the newer call is
+  /// already in flight with the real results.
+  Future<Iterable<WorkOrder>> _searchWorkOrderOptions(String query) async {
+    _workOrderQuery = query;
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted || _workOrderQuery != query) return const <WorkOrder>[];
+
+    try {
+      return await ref.read(apiProvider).searchWorkOrders(search: query);
+    } catch (_) {
+      return const <WorkOrder>[];
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -59,16 +90,11 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     // Sync selected DU with provider state
     if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
       _selectedDU = duState.selectedDU;
-      if (_selectedDU != null) {
-        final duToLoad = _selectedDU!;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _loadLatestBatchForDU(duToLoad.duId);
-          ref
-              .read(workOrderProvider.notifier)
-              .loadWorkOrdersForDU(duToLoad.duId);
-        });
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _loadMyCurrentBatch();
+        ref.read(workOrderProvider.notifier).searchWorkOrders();
+      });
     }
 
     // Ask the server for the next batch code whenever the selected DU changes.
@@ -82,10 +108,19 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       });
     }
 
-    // Sync selected Work Order with provider state
+    // Sync selected Work Order with provider state, and show it in the
+    // type-ahead field. Skipped while the field has focus, so it never
+    // overwrites what someone is in the middle of typing.
     if (workOrderState.selectedWorkOrder != null &&
         _selectedWorkOrder != workOrderState.selectedWorkOrder) {
       _selectedWorkOrder = workOrderState.selectedWorkOrder;
+      final label = _selectedWorkOrder!.displayName;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _workOrderFocus.hasFocus) return;
+        if (_workOrderController.text != label) {
+          _workOrderController.text = label;
+        }
+      });
     }
 
     // Check if batch is in Pending status (ready to print)
@@ -629,59 +664,74 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           ),
         ),
         const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: workOrderState.isLoading
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Loading work orders...'),
-                    ],
+        RawAutocomplete<WorkOrder>(
+          textEditingController: _workOrderController,
+          focusNode: _workOrderFocus,
+          displayStringForOption: (wo) => wo.displayName,
+          optionsBuilder: (value) => _searchWorkOrderOptions(value.text),
+          onSelected: (wo) {
+            setState(() {
+              _selectedWorkOrder = wo;
+              _selectedWorkOrderId = wo.workOrderCode;
+            });
+            ref.read(workOrderProvider.notifier).selectWorkOrder(wo);
+          },
+          fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                onSubmitted: (_) => onSubmitted(),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Search work order',
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  suffixIcon: workOrderState.isLoading
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : const Icon(Icons.search, size: 20),
+                ),
+              ),
+            );
+          },
+          optionsViewBuilder: (context, onSelected, options) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (context, index) {
+                      final wo = options.elementAt(index);
+                      return ListTile(
+                        dense: true,
+                        title: Text(wo.workOrderCode),
+                        subtitle: Text(wo.workOrderName),
+                        onTap: () => onSelected(wo),
+                      );
+                    },
                   ),
-                )
-              : workOrderState.workOrders.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        'No work orders available',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : DropdownButtonHideUnderline(
-                      child: DropdownButton<WorkOrder>(
-                        value: workOrderState.selectedWorkOrder,
-                        isExpanded: true,
-                        hint: const Text('Select Work Order'),
-                        items: workOrderState.workOrders.map((wo) {
-                          return DropdownMenuItem<WorkOrder>(
-                            value: wo,
-                            child: Text(wo.displayName),
-                          );
-                        }).toList(),
-                        onChanged: (wo) {
-                          if (wo != null) {
-                            setState(() {
-                              _selectedWorkOrder = wo;
-                              _selectedWorkOrderId = wo.workOrderCode;
-                            });
-                            ref
-                                .read(workOrderProvider.notifier)
-                                .selectWorkOrder(wo);
-                          }
-                        },
-                      ),
-                    ),
+                ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -757,11 +807,15 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     );
   }
 
-  // ─── Load Latest Batch ──────────────────────────────────────────
+  // ─── Load My Current Batch ──────────────────────────────────────
 
-  Future<void> _loadLatestBatchForDU(int duId) async {
+  /// The batch this printerman created and has not printed yet. Not simply the
+  /// newest batch: with two printermen on a shift, the newest could be the
+  /// other person's, which would hide this one's own work and let both print
+  /// the same batch.
+  Future<void> _loadMyCurrentBatch() async {
     try {
-      final batch = await ref.read(apiProvider).getLatestBatchForDU(duId);
+      final batch = await ref.read(apiProvider).getMyCurrentBatch();
       if (batch != null && mounted) {
         setState(() {
           _currentBatch = batch;
@@ -974,7 +1028,6 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         onConfirm: () {
           // Refresh the batch after printing
           _loadCurrentBatch(batch.batchId);
-          // _loadLatestBatchForDU(_selectedDU!.duId);
         },
       ),
     );
@@ -1260,6 +1313,12 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
     final batch = widget.batch;
     final tags = widget.tags;
 
+    // A tag held back as "Do Not Use" is one the office has taken out of
+    // circulation. It still shows in the review list so the printerman can see
+    // why the sheet is short, but it never reaches paper and never gets marked.
+    final printableTags =
+        tags.where((t) => t.status.toLowerCase() != 'do not use').toList();
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 20,
@@ -1295,7 +1354,7 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                       ),
                     ),
                     Text(
-                      '${batch.batchCode} · ${tags.length} tag IDs queued',
+                      '${batch.batchCode} · ${printableTags.length} tag IDs queued',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey[600],
@@ -1464,21 +1523,49 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _isPrinting
+                  onPressed: _isPrinting || printableTags.isEmpty
                       ? null
                       : () async {
                           setState(() => _isPrinting = true);
 
                           try {
-                            // 1. Update all tags in batch to "Printed"
-                            for (final tag in tags) {
-                              await ref.read(apiProvider).updateTagStatus(
-                                    tag.tagId,
-                                    'Printed',
-                                  );
+                            // 1. Build the sheet and hand it to a printer.
+                            // Nothing is marked until this comes back true: a
+                            // cancelled dialog or a printer that refused the
+                            // job must leave the tag IDs untouched, or codes
+                            // that never reached paper are burned.
+                            final pdfBytes = await TagSheetPdf.build(
+                              batch: batch,
+                              tags: printableTags,
+                            );
+
+                            final sentToPrinter = await Printing.layoutPdf(
+                              onLayout: (_) async => pdfBytes,
+                              name: '${batch.batchCode}.pdf',
+                            );
+
+                            if (!sentToPrinter) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Print cancelled — nothing was marked as printed.',
+                                    ),
+                                  ),
+                                );
+                              }
+                              return;
                             }
 
-                            // 2. Update batch status to "Printed"
+                            // 2. Update the printed tags to "Printed".
+                            // One bulk call per 100 tags, not one call per tag:
+                            // a 500-tag batch was 500 round trips.
+                            await ref.read(apiProvider).bulkUpdateTagStatus(
+                                  printableTags.map((t) => t.tagId).toList(),
+                                  'Printed',
+                                );
+
+                            // 3. Update batch status to "Printed"
                             await ref.read(apiProvider).updateBatchStatus(
                                   batch.batchId,
                                   'Printed',
@@ -1486,9 +1573,9 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
 
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   content: Text(
-                                    '✅ Tags printed successfully!',
+                                    '✅ ${printableTags.length} tags printed',
                                   ),
                                   backgroundColor: Colors.green,
                                 ),
@@ -1530,7 +1617,7 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Confirm print'),
+                      : const Text('Print tags'),
                 ),
               ),
             ],
