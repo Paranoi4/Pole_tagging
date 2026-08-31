@@ -67,6 +67,8 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
         .toList();
 
     final hasBatches = availableBatches.isNotEmpty;
+    final readyToDispatch =
+        availableBatches.fold<int>(0, (sum, b) => sum + b.quantity);
     if (selectedBatchIndex >= availableBatches.length) selectedBatchIndex = 0;
     final Batch? selectedBatch =
         hasBatches ? availableBatches[selectedBatchIndex] : null;
@@ -131,7 +133,7 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                       Expanded(
                         child: _buildStatCard(
                           'READY TO DISPATCH',
-                          '11',
+                          '$readyToDispatch',
                           'printed tags on hand',
                           valueColor: const Color(0xFF1A7A3D),
                         ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
+import 'package:frontend/widgets/add_crew_dialog.dart'; // ✅ ADD THIS LINE
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -477,7 +478,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               Icons.people,
                               'Crew',
                               'Manage field crews and assignments',
-                              onTap: () {},
+                              onTap: () => showAddCrewDialog(context),
                             ),
                             _buildNavTile(
                               Icons.assignment,

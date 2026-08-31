@@ -10,6 +10,8 @@ import 'package:frontend/models/du.dart';
 import 'package:frontend/models/batch.dart'; // ✅ ADD THIS LINE
 import 'package:frontend/models/work_order.dart';
 import 'package:frontend/models/tag.dart'; // Add import
+import 'package:frontend/models/city.dart'; // ✅ ADD THIS LINE
+import 'package:frontend/models/crew.dart'; // ✅ ADD THIS LINE
 import 'package:frontend/providers/api_providers.dart';
 
 /// Talks to the Poletagging API.
@@ -552,6 +554,92 @@ class ApiService {
         response.statusCode,
         response.body,
         fallback: 'Failed to update tag status: ${response.statusCode}',
+      );
+    }
+  }
+
+  // ===== CITIES =====
+
+  /// Searches cities within a DU by name, for the crew form's City/Area
+  /// autocomplete. Pass an empty [search] to list all cities for the DU.
+  ///
+  /// The backend caps this at 20 results and scopes it to the DU and the
+  /// caller's org, so this is safe to call on every keystroke (debounce on
+  /// the UI side to avoid firing one request per character).
+  Future<List<City>> searchCities(
+      {required int duId, String search = ''}) async {
+    final trimmed = search.trim();
+    final url = trimmed.isEmpty
+        ? '$baseUrl/cities?du_id=$duId'
+        : '$baseUrl/cities?du_id=$duId&search=${Uri.encodeQueryComponent(trimmed)}';
+
+    final response = await _send(() => http.get(
+          Uri.parse(url),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => City.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to search cities: ${response.statusCode}',
+      );
+    }
+  }
+
+  // ===== CREWS =====
+
+  /// Creates a crew. [cityId] must be the id of an existing city (from
+  /// [searchCities]) — the form does not let admins type a city that
+  /// doesn't already exist.
+  Future<Crew> createCrew({required String crewLabel, int? cityId}) async {
+    final response = await _send(() => http.post(
+          Uri.parse('$baseUrl/crews'),
+          headers: _authJsonHeaders,
+          body: jsonEncode({
+            'crew_label': crewLabel,
+            'city_id': cityId,
+          }),
+        ));
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return Crew.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to create crew: ${response.statusCode}',
+      );
+    }
+  }
+
+  Future<List<Crew>> getAllCrews({int? cityId}) => _fetchAllPages(
+      (skip, limit) => _getCrewsPage(skip: skip, limit: limit, cityId: cityId));
+
+  Future<List<Crew>> _getCrewsPage({
+    int skip = 0,
+    int limit = maxPageSize,
+    int? cityId,
+  }) async {
+    final params = <String>['skip=$skip', 'limit=$limit'];
+    if (cityId != null) params.add('city_id=$cityId');
+
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/crews?${params.join('&')}'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Crew.fromJson(json)).toList();
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load crews: ${response.statusCode}',
       );
     }
   }

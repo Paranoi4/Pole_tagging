@@ -38,13 +38,16 @@ def create_city(
 @router.get("", response_model=List[schemas.CityOut])
 def list_cities(
     du_id: Optional[int] = Query(None, description="Filter by DU"),
+    search: Optional[str] = Query(None, min_length=1, max_length=255, description="Case-insensitive search on city name, e.g. for autocomplete"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     query = db.query(models.City).filter(models.City.org_code == current_user.org_code)
     if du_id:
         query = query.filter(models.City.du_id == du_id)
-    return query.all()
+    if search:
+        query = query.filter(models.City.city_name.ilike(f"%{search}%"))
+    return query.order_by(models.City.city_name).limit(20).all()
 
 # ===== GET CITY BY ID =====
 @router.get("/{city_id}", response_model=schemas.CityOut)

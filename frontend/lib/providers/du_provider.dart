@@ -75,11 +75,9 @@ class DUNotifier extends StateNotifier<DUState> {
         isLoading: false,
         selectedDU: dus.isNotEmpty ? dus.first : null,
       );
-
-      // ✅ Auto-load next batch code for first DU
-      if (dus.isNotEmpty) {
-        await loadNextBatchCode(dus.first);
-      }
+      // Next batch code for the first DU is computed by the screen once
+      // both the DU list and the full batches list have loaded — see
+      // updateNextBatchCode.
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
@@ -90,42 +88,44 @@ class DUNotifier extends StateNotifier<DUState> {
 
   void selectDU(DU du) {
     state = state.copyWith(selectedDU: du);
-    // ✅ Load next batch code when DU changes
-    loadNextBatchCode(du);
+    // Next batch code is no longer computed here — the caller (the
+    // screen) passes in the already-loaded batches list via
+    // updateNextBatchCode, since this notifier has no access to
+    // batchProvider's state.
   }
 
-  // ✅ ADD THIS METHOD - Load next batch code
-  Future<void> loadNextBatchCode(DU du) async {
-    state = state.copyWith(isLoadingNextCode: true);
-
-    try {
-      final batches = await _api.getBatchesForDU(du.duId);
-      final nextCode = _getNextBatchCode(du, batches);
-      state = state.copyWith(
-        nextBatchCode: nextCode,
-        isLoadingNextCode: false,
-      );
-    } catch (e) {
-      state = state.copyWith(
-        nextBatchCode: 'Error loading',
-        isLoadingNextCode: false,
-      );
-    }
+  // Computes the next batch code from a batches list the caller already
+  // has loaded (e.g. batchProvider's full, unpaginated list), instead of
+  // fetching a fresh, capped (limit=100) list from the server on every
+  // DU switch.
+  void updateNextBatchCode(DU du, List<Batch> allBatches) {
+    state = state.copyWith(
+      nextBatchCode: _getNextBatchCode(du, allBatches),
+      isLoadingNextCode: false,
+    );
   }
 
   // ✅ ADD THIS HELPER METHOD
   String _getNextBatchCode(DU du, List<Batch> existingBatches) {
     final year = DateTime.now().year;
+    final prefix = 'BT-${du.duCode}-$year-';
 
     // Filter batches for this DU and year
     final yearBatches = existingBatches.where((batch) {
-      return batch.duId == du.duId && batch.batchCode.contains('-$year-');
+      return batch.duId == du.duId && batch.batchCode.startsWith(prefix);
     }).toList();
 
-    // Calculate next sequence number
-    final nextSeq = yearBatches.length + 1;
+    // Next sequence number is the highest existing one + 1, not a count —
+    // counting breaks the moment any batch is ever deleted, since the
+    // count drops but the highest code already issued doesn't.
+    final maxSeq = yearBatches.fold<int>(0, (max, batch) {
+      final suffix = batch.batchCode.substring(prefix.length);
+      final seq = int.tryParse(suffix) ?? 0;
+      return seq > max ? seq : max;
+    });
 
-    return 'BT-${du.duCode}-$year-${nextSeq.toString().padLeft(4, '0')}';
+    final nextSeq = maxSeq + 1;
+    return '$prefix${nextSeq.toString().padLeft(4, '0')}';
   }
 }
 
