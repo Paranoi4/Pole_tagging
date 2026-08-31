@@ -66,23 +66,6 @@ class RoleNotifier extends StateNotifier<RoleState> {
     }
   }
 
-  Future<void> createRole(String roleName) async {
-    state = state.copyWith(isLoading: true, clearError: true);
-
-    try {
-      final newRole = await _api.createRole(roleName);
-      state = state.copyWith(
-        roles: [...state.roles, newRole],
-        isLoading: false,
-      );
-    } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: e.toString(),
-      );
-    }
-  }
-
   void clearError() {
     state = state.copyWith(clearError: true);
   }

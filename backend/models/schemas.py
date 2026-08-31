@@ -124,8 +124,11 @@ class DUOut(BaseModel):
     is_active: bool
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
-    creator: Optional[UserOut] = None
     org_code: str
+    # No nested `creator`. It embedded the full user — email, timestamps, roles
+    # — inside every DU, and inside every response that nests a DU, for data no
+    # client reads. `created_by` above is the id; fetch the person from
+    # GET /users/{id} if a screen ever needs to show them.
 
 
 class DUWithStats(DUOut):
@@ -168,9 +171,10 @@ class WorkOrderOut(BaseModel):
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     
-    du: Optional[DUOut] = None
-    batches: List["BatchSummary"] = []
     org_code: str
+    # No nested `du` or `batches`. The batch list grows without bound as work
+    # is done against the order, and both are already reachable through
+    # GET /du/{id} and GET /batches?du_id=...
 
 # ============================================================
 # BATCH
@@ -186,6 +190,10 @@ class BatchCreate(BaseModel):
 class BatchUpdate(BaseModel):
     status: Optional[str] = None
     assigned_to: Optional[int] = None
+
+
+class NextBatchCode(BaseModel):
+    next_batch_code: str
 
 
 class BatchSummary(BaseModel):
@@ -212,9 +220,11 @@ class BatchOut(BaseModel):
     
     du: Optional[DUOut] = None
     work_order: Optional[WorkOrderSummary] = None
-    tags: List["TagOut"] = []
     assigned_crew: Optional[UserOut] = None
     org_code: str
+    # No `tags` list. A batch holds up to 1000 of them and each TagOut nests its
+    # own du and batch, so including them made one batch ~275 KB and a page of
+    # GET /batches ~27 MB. Tags are fetched through GET /batches/{id}/tags.
 
 # ============================================================
 # TAG
@@ -239,6 +249,10 @@ class TagOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     tag_id: int
     du_id: int
+    # Sent flat alongside the nested `batch` object, the same way du_id sits
+    # beside `du` — a client that only needs the id should not have to reach
+    # into the nested object for it.
+    batch_id: Optional[int] = None
     tag_code: str
     pole_no: str
     status: str
@@ -248,9 +262,13 @@ class TagOut(BaseModel):
     created_by: Optional[int] = None
     updated_by: Optional[int] = None
     
-    du: Optional[DUOut] = None
-    batch: Optional[BatchSummary] = None
     org_code: str
+    # No nested `du` or `batch`. Both are identical across every tag in a
+    # response, so 500 tags carried 500 copies of the same two objects and
+    # doubled the payload of GET /batches/{id}/tags. The flat du_id and
+    # batch_id above identify them; fetch the objects themselves from
+    # GET /du/{id} and GET /batches/{id} when they are actually needed.
+
     @property
     def full_tag(self) -> str:
         return self.tag_code

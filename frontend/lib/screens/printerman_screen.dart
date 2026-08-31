@@ -36,9 +36,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   bool _isLoadingBatch = false;
 
   // Tracks what the next-batch-code was last computed from, so we only
-  // recompute when the selected DU or the loaded batches actually change.
+  // recompute only when the selected DU actually changes.
   DU? _nextCodeDU;
-  int _nextCodeBatchesLength = -1;
 
   @override
   void initState() {
@@ -49,10 +48,6 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       // order loads exactly once — doing it here too caused every load
       // to fire twice (batches, tags, and work-orders all doubled).
       ref.read(duProvider.notifier).loadDUs();
-      // Load the full batch list once (paginated, no cap) so the next
-      // batch code can be computed locally on every DU switch instead of
-      // hitting the server with a fresh, limit=100 fetch each time.
-      ref.read(batchProvider.notifier).loadAllBatches();
     });
   }
 
@@ -60,7 +55,6 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   Widget build(BuildContext context) {
     final duState = ref.watch(duProvider);
     final workOrderState = ref.watch(workOrderProvider);
-    final batchState = ref.watch(batchProvider);
 
     // Sync selected DU with provider state
     if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
@@ -77,21 +71,14 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       }
     }
 
-    // Recompute the next batch code locally whenever the selected DU or
-    // the loaded batches list changes — no network call, since the full
-    // list is already loaded once in initState.
-    if (_selectedDU != null &&
-        (_nextCodeDU != _selectedDU ||
-            _nextCodeBatchesLength != batchState.batches.length)) {
+    // Ask the server for the next batch code whenever the selected DU changes.
+    // It is the same generator create_batch uses, so the form shows the code
+    // the batch will actually get.
+    if (_selectedDU != null && _nextCodeDU != _selectedDU) {
       _nextCodeDU = _selectedDU;
-      _nextCodeBatchesLength = batchState.batches.length;
-      final duForCode = _selectedDU!;
-      final batchesForCode = batchState.batches;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        ref
-            .read(duProvider.notifier)
-            .updateNextBatchCode(duForCode, batchesForCode);
+        ref.read(duProvider.notifier).loadNextBatchCode();
       });
     }
 
@@ -233,8 +220,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                           Expanded(
                             child: _buildBatchField(
                               'BATCH ID',
-                              (batchState.isLoading &&
-                                      batchState.batches.isEmpty)
+                              duState.isLoadingNextCode
                                   ? 'Calculating...'
                                   : (duState.nextBatchCode ?? 'Select DU'),
                             ),
@@ -849,10 +835,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           _currentBatch = batch;
         });
 
-        // ─── Refresh batch list so BATCH ID preview updates ─────
-        // (the sync effect in build() recomputes the next code
-        // automatically once this list changes)
-        await ref.read(batchProvider.notifier).loadAllBatches();
+        // The code just used is taken, so ask the server for the next one.
+        await ref.read(duProvider.notifier).loadNextBatchCode();
       }
     } catch (e) {
       if (mounted) {

@@ -308,24 +308,6 @@ class ApiService {
     }
   }
 
-  Future<Role> createRole(String roleName) async {
-    final response = await _send(() => http.post(
-          Uri.parse('$baseUrl/roles'),
-          headers: _authJsonHeaders,
-          body: jsonEncode({'role_name': roleName}),
-        ));
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return Role.fromJson(jsonDecode(response.body));
-    } else {
-      throw ApiException.fromResponse(
-        response.statusCode,
-        response.body,
-        fallback: 'Failed to create role: ${response.statusCode}',
-      );
-    }
-  }
-
   // ===== USER ROLES =====
   // Both endpoints are Admin-only on the backend (require_role("Admin")).
   // A non-Admin calling these gets a 403, surfaced as an ApiException.
@@ -363,7 +345,7 @@ class ApiService {
 
   Future<List<DU>> getDUs() async {
     final response = await _send(() => http.get(
-          Uri.parse('$baseUrl/du?limit=100'),
+          Uri.parse('$baseUrl/du'),
           headers: _authHeaders,
         ));
 
@@ -375,6 +357,29 @@ class ApiService {
         response.statusCode,
         response.body,
         fallback: 'Failed to load DUs: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// The code the next batch will be given, e.g. `BT-N-2026-0042`.
+  ///
+  /// The server derives it with the same generator that stamps the real batch,
+  /// so the create form shows the code it will actually get. Takes no DU: an
+  /// org owns one, and the token already says which org.
+  Future<String> getNextBatchCode() async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/batches/next-code'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return data['next_batch_code'] as String;
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load next batch code: ${response.statusCode}',
       );
     }
   }

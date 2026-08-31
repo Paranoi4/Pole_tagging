@@ -158,7 +158,39 @@ def create_batch(
     return db_batch
 
 # ============================================================
-# 2. GET ALL BATCHES
+# 2. NEXT BATCH CODE (PREVIEW)
+# ============================================================
+
+@router.get("/next-code", response_model=schemas.NextBatchCode)
+def get_next_batch_code(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The code the next batch will be given, for the create form to show.
+
+    Takes no du_id: an organization owns exactly one DU, so the caller's org
+    determines it. Uses the same generator as create_batch, so what the form
+    displays is what the batch actually gets — computing it client-side meant
+    the format lived in two places and could drift apart.
+
+    Still only a preview: another printerman creating a batch first takes the
+    number, and create_batch answers that race with a 409.
+    """
+    du = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.org_code == current_user.org_code,
+        models.DistributionUtility.is_active == True,
+    ).first()
+    if not du:
+        raise HTTPException(
+            status_code=404,
+            detail="No active DU found for your organization",
+        )
+
+    return {"next_batch_code": generate_batch_code(du.du_code, db)}
+
+
+# ============================================================
+# 3. GET ALL BATCHES
 # ============================================================
 
 @router.get("", response_model=List[schemas.BatchOut])

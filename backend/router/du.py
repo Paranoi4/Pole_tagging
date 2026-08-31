@@ -78,30 +78,33 @@ def create_du(
 
 @router.get("", response_model=List[schemas.DUOut])
 def list_dus(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
     include_inactive: bool = Query(False),
     search: Optional[str] = Query(None, description="Search by name or code"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    query = db.query(models.DistributionUtility)
-    
-    # FILTER by org_code
-    query = query.filter(models.DistributionUtility.org_code == current_user.org_code)
-    
+    """Every DU in the caller's organization.
+
+    Not paginated: an organization owns one DU (NP/Negros, BP/Bohol,
+    MP/More Power), so there is nothing to page through — and the old
+    `limit` defaulted to 10, which would have silently truncated the list
+    for any caller that did not pass one.
+    """
+    query = db.query(models.DistributionUtility).filter(
+        models.DistributionUtility.org_code == current_user.org_code
+    )
+
     if not include_inactive:
         query = query.filter(models.DistributionUtility.is_active == True)
-    
+
     if search:
         search_pattern = f"%{search}%"
         query = query.filter(
             models.DistributionUtility.du_name.ilike(search_pattern) |
             models.DistributionUtility.du_code.ilike(search_pattern)
         )
-    
-    items = query.order_by(models.DistributionUtility.du_name).offset(skip).limit(limit).all()
-    return items
+
+    return query.order_by(models.DistributionUtility.du_name).all()
 
 
 # ============================================================
