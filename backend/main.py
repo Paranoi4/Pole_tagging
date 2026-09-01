@@ -7,7 +7,7 @@ import models.models as models
 from models.enums import OrgCode, RoleName
 from router import (
     auth, me, users, roles, user_roles,
-    du, work_orders, batches, tags, cities, crews, audit_log,
+    du, work_orders, batches, tags, cities, crews, audit_log, stats,
 )
 
 Base.metadata.create_all(bind=engine)
@@ -71,5 +71,6 @@ for router in (
     cities.router,
     crews.router,
     audit_log.router,
+    stats.router,
 ):
     app.include_router(router)

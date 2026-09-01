@@ -351,3 +351,38 @@ class AuditLogPage(BaseModel):
 
     total: int
     items: List[AuditLogOut]
+
+
+# ============================================================
+# PRINTERMAN STATS
+# ============================================================
+
+class CurrentBatchSummary(BaseModel):
+    """Just enough of a batch to fill the printerman's fourth stat card.
+
+    Deliberately not BatchOut: the card shows a code, a count and a status, and
+    sending the nested DU and work order with it would ship a page of JSON to
+    render one tile.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+    batch_id: int
+    batch_code: str
+    quantity: int
+    status: str
+
+
+class PrintermanStats(BaseModel):
+    """The four numbers across the top of the printerman screen.
+
+    The three counts are for the whole organization's DU — the tag pool is
+    shared, so "how many are left" is not a per-user question. `current_batch`
+    is the exception and belongs to the caller alone, which is why it sits here
+    rather than being derived from the counts.
+    """
+
+    du_id: int
+    total_printed: int
+    available_in_pool: int
+    lost_printed: int
+    current_batch: Optional[CurrentBatchSummary] = None

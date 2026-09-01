@@ -1,6 +1,7 @@
 // 📁 lib/screens/home_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:frontend/widgets/stat_card.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
@@ -336,62 +337,62 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: _buildStatCard(
-                        'PRINTED',
-                        '11',
-                        'tag IDs',
-                        Icons.print,
-                        const Color(0xFF1A7A3D),
+                      child: StatCard(
+                        label: 'PRINTED',
+                        value: '11',
+                        subtitle: 'tag IDs',
+                        icon: Icons.print,
+                        iconColor: const Color(0xFF1A7A3D),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: _buildStatCard(
-                        'DISPATCHED',
-                        '14',
-                        'tag IDs',
-                        Icons.local_shipping,
-                        const Color(0xFF3B82F6),
+                      child: StatCard(
+                        label: 'DISPATCHED',
+                        value: '14',
+                        subtitle: 'tag IDs',
+                        icon: Icons.local_shipping,
+                        iconColor: const Color(0xFF3B82F6),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: _buildStatCard(
-                        'USED',
-                        '8',
-                        'tag IDs',
-                        Icons.check_circle,
-                        const Color(0xFF8B5CF6),
+                      child: StatCard(
+                        label: 'USED',
+                        value: '8',
+                        subtitle: 'tag IDs',
+                        icon: Icons.check_circle,
+                        iconColor: const Color(0xFF8B5CF6),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: _buildStatCard(
-                        'DO NOT USE',
-                        '1',
-                        'tag ID',
-                        Icons.warning_amber_rounded,
-                        const Color(0xFFEF4444),
+                      child: StatCard(
+                        label: 'DO NOT USE',
+                        value: '1',
+                        subtitle: 'tag ID',
+                        icon: Icons.warning_amber_rounded,
+                        iconColor: const Color(0xFFEF4444),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: _buildStatCard(
-                        'LOST PRINTED',
-                        '1',
-                        'tag ID',
-                        Icons.error_outline,
-                        const Color(0xFFF59E0B),
+                      child: StatCard(
+                        label: 'LOST PRINTED',
+                        value: '1',
+                        subtitle: 'tag ID',
+                        icon: Icons.error_outline,
+                        iconColor: const Color(0xFFF59E0B),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: _buildStatCard(
-                        'BATCHES',
-                        '3',
-                        'batches',
-                        Icons.inventory_2,
-                        const Color(0xFFEC4899),
+                      child: StatCard(
+                        label: 'BATCHES',
+                        value: '3',
+                        subtitle: 'batches',
+                        icon: Icons.inventory_2,
+                        iconColor: const Color(0xFFEC4899),
                       ),
                     ),
                   ],
@@ -477,72 +478,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   // ─── Helper Widgets ───
-
-  Widget _buildStatCard(
-    String label,
-    String value,
-    String subtitle,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 18, color: color),
-              ),
-              const Spacer(),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[500],
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey[400],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildAdminCard(String title, IconData icon, Color color) {
     return InkWell(

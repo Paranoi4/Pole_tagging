@@ -13,6 +13,7 @@ import 'package:frontend/models/tag.dart';
 import 'package:frontend/models/city.dart';
 import 'package:frontend/models/crew.dart';
 import 'package:frontend/models/audit_entry.dart';
+import 'package:frontend/models/printerman_stats.dart';
 
 /// Talks to the Poletagging API.
 ///
@@ -756,6 +757,28 @@ class ApiService {
         response.statusCode,
         response.body,
         fallback: 'Failed to load audit trail: ${response.statusCode}',
+      );
+    }
+  }
+
+  // ============================================================
+  // STATS
+  // ============================================================
+
+  /// Every number on the printerman dashboard's stat row, in one call.
+  Future<PrintermanStats> getPrintermanStats(int duId) async {
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/stats/printerman?du_id=$duId'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      return PrintermanStats.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load dashboard stats: ${response.statusCode}',
       );
     }
   }

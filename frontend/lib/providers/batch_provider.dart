@@ -10,11 +10,18 @@ class BatchState {
   final Batch? createdBatch;
   final List<Batch> batches; // new
 
+  /// The batch the signed-in printerman created and has not finished printing.
+  /// Null is a real value here — it means "this printerman has no open batch" —
+  /// so clearing it goes through [copyWith]'s `clearCurrentBatch` flag rather
+  /// than passing null, which `??` would read as "leave it alone".
+  final Batch? currentBatch;
+
   BatchState({
     this.isLoading = false,
     this.errorMessage,
     this.createdBatch,
     this.batches = const [], // new
+    this.currentBatch,
   });
 
   factory BatchState.initial() {
@@ -27,12 +34,16 @@ class BatchState {
     Batch? createdBatch,
     bool clearError = false,
     List<Batch>? batches, // new
+    Batch? currentBatch,
+    bool clearCurrentBatch = false,
   }) {
     return BatchState(
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       createdBatch: createdBatch ?? this.createdBatch,
       batches: batches ?? this.batches, // new
+      currentBatch:
+          clearCurrentBatch ? null : (currentBatch ?? this.currentBatch),
     );
   }
 }
@@ -67,6 +78,43 @@ class BatchNotifier extends StateNotifier<BatchState> {
       );
       rethrow;
     }
+  }
+
+  /// GET /batches/my-current — the caller's own unprinted batch, or null.
+  ///
+  /// Deliberately does not touch `isLoading`: the create-batch button watches
+  /// that flag, and this runs from a build-time guard, so flipping it here
+  /// would spin that button every time the screen rebuilds. The screen keeps
+  /// its own re-entry guard for this call.
+  Future<Batch?> loadMyCurrentBatch() async {
+    try {
+      final batch = await _api.getMyCurrentBatch();
+      state = batch == null
+          ? state.copyWith(clearCurrentBatch: true)
+          : state.copyWith(currentBatch: batch);
+      return batch;
+    } catch (e) {
+      // A printerman with no open batch is the normal empty state, not an
+      // error worth showing, so the message is left unset — but the stale
+      // batch still has to go.
+      state = state.copyWith(clearCurrentBatch: true);
+      rethrow;
+    }
+  }
+
+  /// PATCH /batches/{id}/status — returns the saved row, so the fresh batch
+  /// comes back from the call that changed it rather than needing a GET.
+  Future<Batch> updateBatchStatus(int batchId, String status) async {
+    final updated = await _api.updateBatchStatus(batchId, status);
+
+    state = state.copyWith(
+      currentBatch:
+          state.currentBatch?.batchId == batchId ? updated : state.currentBatch,
+      batches: state.batches
+          .map((b) => b.batchId == batchId ? updated : b)
+          .toList(),
+    );
+    return updated;
   }
 
   Future<void> loadAllBatches() async {

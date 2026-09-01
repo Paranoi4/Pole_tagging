@@ -49,14 +49,6 @@ def list_crews(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """List crews for the caller's organization.
-
-    `du_id` narrows this to the crews that actually work that DU, reached
-    through the city they are tied to. The dispatcher needs it: a batch belongs
-    to one DU, and offering crews from a different DU invites handing a batch to
-    people who will never see those poles. Crews with no city are excluded by
-    the join, which is correct — an unplaced crew cannot be dispatched to.
-    """
     query = db.query(models.Crew).filter(
         models.Crew.org_code == current_user.org_code
     )

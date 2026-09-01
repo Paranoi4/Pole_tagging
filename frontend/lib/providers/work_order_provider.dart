@@ -32,12 +32,15 @@ class WorkOrderState {
     String? errorMessage,
     WorkOrder? selectedWorkOrder,
     bool clearError = false,
+    bool clearSelectedWorkOrder = false,
   }) {
     return WorkOrderState(
       workOrders: workOrders ?? this.workOrders,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
-      selectedWorkOrder: selectedWorkOrder ?? this.selectedWorkOrder,
+      selectedWorkOrder: clearSelectedWorkOrder
+          ? null
+          : (selectedWorkOrder ?? this.selectedWorkOrder),
     );
   }
 }
@@ -66,10 +69,14 @@ class WorkOrderNotifier extends StateNotifier<WorkOrderState> {
 
     try {
       final workOrders = await _api.searchWorkOrders(search: search);
+      // No auto-select. The selected work order is what `createBatch` bills
+      // the batch to, so defaulting it to whichever row came back first lets a
+      // printerman who never touched the field print against someone else's
+      // work order — and it hid the "Please select a Work Order" guard, which
+      // could never fire while the field filled itself in.
       state = state.copyWith(
         workOrders: workOrders,
         isLoading: false,
-        selectedWorkOrder: workOrders.isNotEmpty ? workOrders.first : null,
       );
     } catch (e) {
       state = state.copyWith(
@@ -79,8 +86,24 @@ class WorkOrderNotifier extends StateNotifier<WorkOrderState> {
     }
   }
 
+  /// Type-ahead lookup: returns the matches without storing them or moving the
+  /// selection. Separate from [searchWorkOrders] because that one owns the
+  /// dropdown's list, and letting every keystroke overwrite it would leave the
+  /// list showing whatever the printerman last typed rather than the DU's work
+  /// orders.
+  Future<List<WorkOrder>> searchWorkOrderOptions(String search) {
+    return _api.searchWorkOrders(search: search);
+  }
+
   void selectWorkOrder(WorkOrder workOrder) {
     state = state.copyWith(selectedWorkOrder: workOrder);
+  }
+
+  /// Drops the selection — used when the DU changes, since a work order
+  /// belongs to one DU and carrying it across would bill the batch to a DU the
+  /// printerman is no longer looking at.
+  void clearSelectedWorkOrder() {
+    state = state.copyWith(clearSelectedWorkOrder: true);
   }
 }
 

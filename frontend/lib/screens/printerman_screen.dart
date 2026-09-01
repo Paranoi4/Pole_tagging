@@ -1,6 +1,7 @@
 // 📁 lib/screens/printerman_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:frontend/config/app_colors.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
@@ -9,9 +10,12 @@ import 'package:frontend/models/du.dart';
 import 'package:frontend/providers/work_order_provider.dart';
 import 'package:frontend/models/work_order.dart';
 import 'package:frontend/providers/batch_provider.dart';
+import 'package:frontend/providers/tag_provider.dart';
+import 'package:frontend/providers/stats_provider.dart';
+import 'package:frontend/helpers/formatting.dart';
 import 'package:frontend/models/batch.dart';
 import 'package:frontend/models/tag.dart';
-import 'package:frontend/providers/api_providers.dart';
+import 'package:frontend/widgets/stat_card.dart';
 import 'package:frontend/services/tag_sheet_pdf.dart';
 import 'package:printing/printing.dart';
 
@@ -34,18 +38,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   Batch? _currentBatch;
   List<Tag>? _currentBatchTags;
   bool _isLoadingBatch = false;
-
-  /// In-flight guard for _loadMyCurrentBatch. Not part of the UI, so it is a
-  /// plain field rather than something setState touches.
   bool _isLoadingMyBatch = false;
-
-  // Tracks what the next-batch-code was last computed from, so we only
-  // recompute only when the selected DU actually changes.
   DU? _nextCodeDU;
-
-  // Work order type-ahead. The field is searched server-side rather than
-  // filled with a full list: work orders accumulate indefinitely, and the
-  // backend caps a search at 20.
   final TextEditingController _workOrderController = TextEditingController();
   final FocusNode _workOrderFocus = FocusNode();
   String _workOrderQuery = '';
@@ -57,16 +51,19 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     super.dispose();
   }
 
-  /// Debounced search, so typing does not fire one request per character.
-  /// A query that has been superseded returns nothing — the newer call is
-  /// already in flight with the real results.
   Future<Iterable<WorkOrder>> _searchWorkOrderOptions(String query) async {
+    // Nothing typed yet — an empty field means the printerman has only clicked
+    // in, so there is nothing to look up.
+    if (query.isEmpty) return const <WorkOrder>[];
+
     _workOrderQuery = query;
     await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted || _workOrderQuery != query) return const <WorkOrder>[];
 
     try {
-      return await ref.read(apiProvider).searchWorkOrders(search: query);
+      return await ref
+          .read(workOrderProvider.notifier)
+          .searchWorkOrderOptions(query);
     } catch (_) {
       return const <WorkOrder>[];
     }
@@ -76,10 +73,6 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Just load the DU list here. build()'s sync block below already
-      // reacts to duState.selectedDU changing and fires the batch/work
-      // order loads exactly once — doing it here too caused every load
-      // to fire twice (batches, tags, and work-orders all doubled).
       ref.read(duProvider.notifier).loadDUs();
     });
   }
@@ -88,6 +81,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   Widget build(BuildContext context) {
     final duState = ref.watch(duProvider);
     final workOrderState = ref.watch(workOrderProvider);
+    final stats = ref.watch(printermanStatsProvider).stats;
 
     // Sync selected DU with provider state
     if (duState.selectedDU != null && _selectedDU != duState.selectedDU) {
@@ -95,13 +89,9 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _loadMyCurrentBatch();
-        ref.read(workOrderProvider.notifier).searchWorkOrders();
+        ref.read(printermanStatsProvider.notifier).load(_selectedDU!.duId);
       });
     }
-
-    // Ask the server for the next batch code whenever the selected DU changes.
-    // It is the same generator create_batch uses, so the form shows the code
-    // the batch will actually get.
     if (_selectedDU != null && _nextCodeDU != _selectedDU) {
       _nextCodeDU = _selectedDU;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -110,9 +100,6 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       });
     }
 
-    // Sync selected Work Order with provider state, and show it in the
-    // type-ahead field. Skipped while the field has focus, so it never
-    // overwrites what someone is in the middle of typing.
     if (workOrderState.selectedWorkOrder != null &&
         _selectedWorkOrder != workOrderState.selectedWorkOrder) {
       _selectedWorkOrder = workOrderState.selectedWorkOrder;
@@ -125,27 +112,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       });
     }
 
-    // Open whenever there is a batch to look at, not only when something is
-    // waiting to print. The sheet is also where tags get flagged lost, and a
-    // fully printed batch is exactly when that is needed — gating this on
-    // "something needs printing" locked the printerman out of the one screen
-    // that could unlock a reprint.
-    final bool canPrint =
-        _currentBatch != null && (_currentBatchTags?.isNotEmpty ?? false);
 
-    // Watched, not passed in from the route. On a browser refresh the route is
-    // built before the session is restored, so a flag computed there is false
-    // and stays false; watching means the icon appears as soon as the roles
-    // land.
-    final showDispatcherShortcut = ref
-            .watch(authProvider)
-            .user
-            ?.roles
-            .any((role) => role.roleName == 'Dispatcher') ??
-        false;
+    final bool canPrint = _currentBatch != null && (_currentBatchTags?.isNotEmpty ?? false);
+    final showDispatcherShortcut = ref.watch(authProvider).user?.roles.any((role) => role.roleName == 'Dispatcher') ??false;
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: AppColors.pageBg,
       appBar: AppBar(
         title: const Text(
           'Pole Tagging',
@@ -154,7 +126,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
             fontSize: 20,
           ),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.surface,
         elevation: 1,
         centerTitle: false,
         actions: [
@@ -191,42 +163,59 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                 Row(
                   children: [
                     Expanded(
-                        child: _buildStatCard(
-                      'TOTAL PRINTED',
-                      '29',
-                      'tag IDs printed all-time',
-                      Icons.print,
-                      Colors.blue,
-                    )),
+                      child: StatCard(
+                        label: 'TOTAL PRINTED',
+                        // An em dash until the first load lands: a placeholder
+                        // 0 would read as a real count of nothing printed.
+                        value: stats == null
+                            ? '—'
+                            : formatCount(stats.totalPrinted),
+                        subtitle: 'tag IDs printed all-time',
+                        icon: Icons.print,
+                        iconColor: AppColors.info,
+                      ),
+                    ),
                     const SizedBox(width: 16),
                     Expanded(
-                        child: _buildStatCard(
-                      'AVAILABLE IN POOL',
-                      '3,145,674',
-                      'unassigned tag IDs',
-                      Icons.inventory_2,
-                      Colors.green,
-                    )),
+                      child: StatCard(
+                        label: 'AVAILABLE IN POOL',
+                        value: stats == null
+                            ? '—'
+                            : formatCount(stats.availableInPool),
+                        subtitle: 'unassigned tag IDs',
+                        icon: Icons.inventory_2,
+                        iconColor: AppColors.success,
+                      ),
+                    ),
                     const SizedBox(width: 16),
                     Expanded(
-                        child: _buildStatCard(
-                      'LOST PRINTED',
-                      '1',
-                      'awaiting reprint',
-                      Icons.warning_amber_rounded,
-                      Colors.orange,
-                    )),
+                      child: StatCard(
+                        label: 'LOST PRINTED',
+                        value: stats == null
+                            ? '—'
+                            : formatCount(stats.lostPrinted),
+                        subtitle: 'awaiting reprint',
+                        icon: Icons.warning_amber_rounded,
+                        iconColor: AppColors.warning,
+                      ),
+                    ),
                     const SizedBox(width: 16),
                     Expanded(
-                        child: _buildStatCard(
-                      'THIS BATCH QUANTITY',
-                      '$_quantity',
-                      _currentBatch != null
-                          ? '${_currentBatch!.batchCode} - ${_currentBatch!.quantity} tags'
-                          : 'BT-2026-0043 - awaiting print',
-                      Icons.production_quantity_limits,
-                      Colors.purple,
-                    )),
+                      child: StatCard(
+                        label: 'THIS BATCH QUANTITY',
+                        // The batch's own count, not `_quantity`: that field is
+                        // the number typed into the form for the *next* batch,
+                        // so the tile used to contradict its own subtitle.
+                        value: _currentBatch != null
+                            ? formatCount(_currentBatch!.quantity)
+                            : '—',
+                        subtitle: _currentBatch != null
+                            ? '${_currentBatch!.batchCode} - ${_currentBatch!.quantity} tags'
+                            : 'no batch awaiting print',
+                        icon: Icons.production_quantity_limits,
+                        iconColor: AppColors.accent,
+                      ),
+                    ),
                   ],
                 ),
 
@@ -238,12 +227,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppColors.surface,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey[200]!),
+                    border: Border.all(color: AppColors.border),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
+                        color: AppColors.shadow,
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -257,7 +246,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey,
+                          color: AppColors.textDisabled,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -297,8 +286,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                 ? null
                                 : _generateBatch,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1A7A3D),
-                              foregroundColor: Colors.white,
+                              backgroundColor: AppColors.brand,
+                              foregroundColor: AppColors.onBrand,
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
@@ -310,7 +299,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                     width: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: Colors.white,
+                                      color: AppColors.onBrand,
                                     ),
                                   )
                                 : const Text('Generate batch'),
@@ -329,12 +318,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppColors.surface,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey[200]!),
+                    border: Border.all(color: AppColors.border),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
+                        color: AppColors.shadow,
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
@@ -363,14 +352,14 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                               decoration: BoxDecoration(
                                 color: _currentBatch!.status.toLowerCase() ==
                                         'pending'
-                                    ? Colors.orange[50]
-                                    : Colors.green[50],
+                                    ? AppColors.warningBg
+                                    : AppColors.successBg,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: _currentBatch!.status.toLowerCase() ==
                                           'pending'
-                                      ? Colors.orange[200]!
-                                      : Colors.green[200]!,
+                                      ? AppColors.warningBorder
+                                      : AppColors.successBorder,
                                 ),
                               ),
                               child: Text(
@@ -379,8 +368,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                   fontSize: 13,
                                   color: _currentBatch!.status.toLowerCase() ==
                                           'pending'
-                                      ? Colors.orange[800]
-                                      : Colors.green[800],
+                                      ? AppColors.warningText
+                                      : AppColors.successText,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -392,15 +381,15 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.grey[100],
+                                color: AppColors.surfaceMuted,
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.grey[300]!),
+                                border: Border.all(color: AppColors.borderStrong),
                               ),
                               child: Text(
                                 'No batch generated yet',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey[600],
+                                  color: AppColors.textSecondary,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -414,8 +403,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                               icon: const Icon(Icons.print, size: 18),
                               label: const Text('Print tags'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF1A7A3D),
-                                foregroundColor: Colors.white,
+                                backgroundColor: AppColors.brand,
+                                foregroundColor: AppColors.onBrand,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 10,
@@ -442,7 +431,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                         Container(
                           width: double.infinity,
                           decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey[300]!),
+                            border: Border.all(color: AppColors.borderStrong),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -455,10 +444,10 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                   vertical: 12,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey[100],
+                                  color: AppColors.surfaceMuted,
                                   border: Border(
                                     bottom: BorderSide(
-                                      color: Colors.grey[300]!,
+                                      color: AppColors.borderStrong,
                                     ),
                                   ),
                                 ),
@@ -478,7 +467,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
-                                          color: Colors.black54,
+                                          color: AppColors.scrim,
                                           letterSpacing: 0.5,
                                         ),
                                       ),
@@ -501,7 +490,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                                   decoration: BoxDecoration(
                                     border: Border(
                                       bottom: BorderSide(
-                                        color: Colors.grey[200]!,
+                                        color: AppColors.border,
                                       ),
                                     ),
                                   ),
@@ -531,7 +520,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                             padding: EdgeInsets.all(40),
                             child: Text(
                               'No tags in this batch',
-                              style: TextStyle(color: Colors.grey),
+                              style: TextStyle(color: AppColors.textDisabled),
                             ),
                           ),
                         ),
@@ -545,23 +534,23 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue[50],
+                    color: AppColors.infoBg,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue[200]!),
+                    border: Border.all(color: AppColors.infoBorder),
                   ),
                   child: const Row(
                     children: [
                       Icon(
                         Icons.info_outline,
                         size: 18,
-                        color: Colors.blue,
+                        color: AppColors.info,
                       ),
                       SizedBox(width: 8),
                       Text(
                         'Tag ID is allocated by the server from the Available pool',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.blue,
+                          color: AppColors.info,
                         ),
                       ),
                     ],
@@ -588,7 +577,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
+            color: AppColors.textSecondary,
             letterSpacing: 0.5,
           ),
         ),
@@ -596,7 +585,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: AppColors.borderStrong),
             borderRadius: BorderRadius.circular(8),
           ),
           child: duState.isLoading
@@ -619,7 +608,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Text(
                         'No DUs available',
-                        style: TextStyle(color: Colors.grey),
+                        style: TextStyle(color: AppColors.textDisabled),
                       ),
                     )
                   : duState.dus.length == 1
@@ -648,7 +637,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
                               if (du != null) {
                                 setState(() {
                                   _selectedWorkOrder = null;
+                                  _selectedWorkOrderId = null;
+                                  _workOrderController.clear();
                                 });
+                                ref
+                                    .read(workOrderProvider.notifier)
+                                    .clearSelectedWorkOrder();
                                 // Only update the provider here. The
                                 // build() sync block below reacts to
                                 // duState.selectedDU changing and loads
@@ -674,7 +668,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
+            color: AppColors.textSecondary,
             letterSpacing: 0.5,
           ),
         ),
@@ -695,7 +689,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!),
+                border: Border.all(color: AppColors.borderStrong),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: TextField(
@@ -761,7 +755,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
+            color: AppColors.textSecondary,
             letterSpacing: 0.5,
           ),
         ),
@@ -769,7 +763,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: AppColors.borderStrong),
             borderRadius: BorderRadius.circular(8),
           ),
           child: TextFormField(
@@ -799,7 +793,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
+            color: AppColors.textSecondary,
             letterSpacing: 0.5,
           ),
         ),
@@ -807,7 +801,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: AppColors.borderStrong),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
@@ -836,7 +830,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     _isLoadingMyBatch = true;
 
     try {
-      final batch = await ref.read(apiProvider).getMyCurrentBatch();
+      final batch =
+          await ref.read(batchProvider.notifier).loadMyCurrentBatch();
       if (batch != null && mounted) {
         setState(() {
           _currentBatch = batch;
@@ -900,7 +895,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('✅ Batch ${batch.batchCode} created successfully!'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
 
@@ -914,6 +909,9 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
 
         // The code just used is taken, so ask the server for the next one.
         await ref.read(duProvider.notifier).loadNextBatchCode();
+
+        // Creating a batch claims tags out of the pool, so the tiles are stale.
+        await ref.read(printermanStatsProvider.notifier).refresh();
       }
     } catch (e) {
       if (mounted) {
@@ -932,7 +930,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     setState(() => _isLoadingBatch = true);
 
     try {
-      final tags = await ref.read(apiProvider).getBatchTags(batchId);
+      final tags =
+          await ref.read(tagProvider.notifier).loadBatchTags(batchId);
       if (mounted) {
         setState(() {
           _currentBatchTags = tags;
@@ -950,29 +949,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   // ─── Status Pill ─────────────────────────────────────────────────
 
   Widget _buildStatusPill(String status) {
-    Color color;
-    switch (status.toLowerCase()) {
-      case 'available':
-        color = Colors.green;
-        break;
-      case 'printed':
-        color = Colors.blue;
-        break;
-      case 'dispatched':
-        color = Colors.orange;
-        break;
-      case 'installed':
-        color = Colors.purple;
-        break;
-      case 'lost':
-        color = Colors.red;
-        break;
-      case 'damaged':
-        color = Colors.red;
-        break;
-      default:
-        color = Colors.grey;
-    }
+    final color = AppColors.tagStatus(status);
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -1006,7 +983,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         },
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          backgroundColor: Colors.blue[50],
+          backgroundColor: AppColors.infoBg,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6),
           ),
@@ -1016,7 +993,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           'Edit status',
           style: TextStyle(
             fontSize: 12,
-            color: Colors.blue[700],
+            color: AppColors.infoText,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -1068,6 +1045,9 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
             _currentBatchTags = tags;
             if (updatedBatch != null) _currentBatch = updatedBatch;
           });
+          // Printing and flagging both move tags between statuses, which is
+          // exactly what the three org-wide tiles count.
+          ref.read(printermanStatsProvider.notifier).refresh();
         },
       ),
     );
@@ -1079,79 +1059,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('❌ $message'),
-        backgroundColor: Colors.red,
+        backgroundColor: AppColors.danger,
       ),
     );
   }
 
   // ─── Stat Card ──────────────────────────────────────────────────
-
-  Widget _buildStatCard(
-    String label,
-    String value,
-    String subtitle,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 20, color: color),
-              ),
-              const Spacer(),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[600],
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[500],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   // ─── Table Helpers ──────────────────────────────────────────────
 
@@ -1163,7 +1076,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: Colors.grey[700],
+          color: AppColors.textPrimary,
           letterSpacing: 0.5,
         ),
       ),
@@ -1183,7 +1096,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         style: TextStyle(
           fontSize: 13,
           fontWeight: isBold ? FontWeight.w600 : FontWeight.w400,
-          color: isStatus ? Colors.green : null,
+          color: isStatus ? AppColors.success : null,
         ),
       ),
     );
@@ -1283,7 +1196,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
     });
 
     try {
-      await ref.read(apiProvider).bulkUpdateTagStatus(
+      await ref.read(tagProvider.notifier).bulkUpdateStatus(
             [widget.tag.tagId],
             _newStatus,
             remarks: remarks.isEmpty ? null : remarks,
@@ -1291,8 +1204,9 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
 
       // Re-read once and hand the result to the caller, rather than letting both
       // this dialog and the screen behind it fetch the same rows.
-      final fresh =
-          await ref.read(apiProvider).getBatchTags(widget.batch.batchId);
+      final fresh = await ref
+          .read(tagProvider.notifier)
+          .loadBatchTags(widget.batch.batchId);
       if (!mounted) return;
       widget.onChanged(fresh);
 
@@ -1302,7 +1216,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
       messenger.showSnackBar(
         SnackBar(
           content: Text('$code set to $status'),
-          backgroundColor: const Color(0xFF1A7A3D),
+          backgroundColor: AppColors.brand,
         ),
       );
     } catch (e) {
@@ -1311,7 +1225,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
       messenger.showSnackBar(
         SnackBar(
           content: Text('❌ Failed to change status: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.danger,
         ),
       );
     }
@@ -1333,7 +1247,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
           IconButton(
             onPressed: _isSaving ? null : () => Navigator.pop(context),
             icon: const Icon(Icons.close),
-            color: Colors.grey[600],
+            color: AppColors.textSecondary,
             tooltip: 'Close',
           ),
         ],
@@ -1349,7 +1263,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: AppColors.surfaceMuted,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -1376,7 +1290,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
                                 widget.batch.workOrder!.workOrderCode,
                             ].join(' · '),
                             style: TextStyle(
-                                fontSize: 12, color: Colors.grey[700]),
+                                fontSize: 12, color: AppColors.textPrimary),
                           ),
                           const SizedBox(height: 6),
                           _statusPill(widget.tag.status),
@@ -1422,7 +1336,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
               const SizedBox(height: 6),
               Text(
                 _manualStatuses[_newStatus] ?? '',
-                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
               ),
               const SizedBox(height: 16),
 
@@ -1436,8 +1350,8 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
                     style: TextStyle(
                       fontSize: 11,
                       color: _remarksRequired
-                          ? Colors.orange[800]
-                          : Colors.grey[600],
+                          ? AppColors.warningText
+                          : AppColors.textSecondary,
                     ),
                   ),
                 ],
@@ -1491,8 +1405,8 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
         ElevatedButton(
           onPressed: _isSaving ? null : _apply,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1A7A3D),
-            foregroundColor: Colors.white,
+            backgroundColor: AppColors.brand,
+            foregroundColor: AppColors.onBrand,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -1502,7 +1416,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
                   height: 18,
                   width: 18,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
+                      strokeWidth: 2, color: AppColors.onBrand),
                 )
               : const Text('Apply change'),
         ),
@@ -1515,7 +1429,7 @@ class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w600,
-          color: Colors.grey[700],
+          color: AppColors.textPrimary,
           letterSpacing: 0.5,
         ),
       );
@@ -1546,39 +1460,7 @@ bool _needsPrint(Tag tag) {
 
 /// The small coloured status chip used by both sheets.
 Widget _statusPill(String status) {
-  Color color;
-  switch (status.toLowerCase()) {
-    case 'available':
-      color = Colors.green;
-      break;
-    case 'printed':
-      color = Colors.blue;
-      break;
-    case 'dispatched':
-      color = Colors.orange;
-      break;
-    case 'installed':
-      color = Colors.purple;
-      break;
-    case 'lost printed':
-      color = Colors.red;
-      break;
-    case 'jam paper':
-      // Amber, not red: the code is not lost, it just has to go through the
-      // printer again.
-      color = Colors.deepOrange;
-      break;
-    case 'do not use':
-      // Grey rather than red: it is not a loss or a fault, the code is simply
-      // withdrawn and will never be printed.
-      color = Colors.blueGrey;
-      break;
-    case 'damaged':
-      color = Colors.red;
-      break;
-    default:
-      color = Colors.grey;
-  }
+  final color = AppColors.tagStatus(status);
 
   return Align(
     alignment: Alignment.centerLeft,
@@ -1676,7 +1558,9 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
   /// Re-reads the batch's tags once and shares that single result with the
   /// screen behind the sheet.
   Future<void> _reload({Batch? updatedBatch}) async {
-    final tags = await ref.read(apiProvider).getBatchTags(widget.batch.batchId);
+    final tags = await ref
+        .read(tagProvider.notifier)
+        .loadBatchTags(widget.batch.batchId);
     if (!mounted) return;
     setState(() => _tags = tags);
     widget.onChanged(tags, updatedBatch);
@@ -1715,30 +1599,31 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
       }
 
       // One bulk call per 100 tags, not one per tag.
-      await ref.read(apiProvider).bulkUpdateTagStatus(
+      await ref.read(tagProvider.notifier).bulkUpdateStatus(
             printable.map((t) => t.tagId).toList(),
             'Printed',
           );
       // Returns the saved row, so the fresh batch comes back from the call that
       // changed it rather than needing a GET of its own.
-      final updatedBatch = await ref.read(apiProvider).updateBatchStatus(
-            widget.batch.batchId,
-            'Printed',
-          );
+      final updatedBatch =
+          await ref.read(batchProvider.notifier).updateBatchStatus(
+                widget.batch.batchId,
+                'Printed',
+              );
 
       await _reload(updatedBatch: updatedBatch);
 
       messenger.showSnackBar(
         SnackBar(
           content: Text('✅ ${printable.length} tags printed'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(
           content: Text('❌ Failed to print: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.danger,
         ),
       );
     } finally {
@@ -1767,7 +1652,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
     });
 
     try {
-      await ref.read(apiProvider).bulkUpdateTagStatus(
+      await ref.read(tagProvider.notifier).bulkUpdateStatus(
             _lostTagIds.toList(),
             'Lost Printed',
             remarks: remarks,
@@ -1782,14 +1667,14 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
           content: Text(
             '$flaggedCount tag ID(s) flagged Lost — ready to reprint',
           ),
-          backgroundColor: Colors.orange[800],
+          backgroundColor: AppColors.warningText,
         ),
       );
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(
           content: Text('❌ Failed to flag tags: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.danger,
         ),
       );
     } finally {
@@ -1818,10 +1703,10 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.blue[50],
+                  color: AppColors.infoBg,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.print, color: Colors.blue[700]),
+                child: Icon(Icons.print, color: AppColors.infoText),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1840,7 +1725,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                       '${_tags.length} tag IDs queued',
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.grey[600],
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -1849,7 +1734,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
               IconButton(
                 onPressed: _isBusy ? null : () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
-                color: Colors.grey[600],
+                color: AppColors.textSecondary,
                 tooltip: 'Close',
               ),
             ],
@@ -1860,7 +1745,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
           Container(
             constraints: const BoxConstraints(maxHeight: 380),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
+              border: Border.all(color: AppColors.borderStrong),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
@@ -1873,9 +1758,9 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: AppColors.surfaceMuted,
                     border: Border(
-                      bottom: BorderSide(color: Colors.grey[300]!),
+                      bottom: BorderSide(color: AppColors.borderStrong),
                     ),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(8),
@@ -1907,9 +1792,9 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange[50],
+                color: AppColors.warningBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange[200]!),
+                border: Border.all(color: AppColors.warningBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1919,7 +1804,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
+                      color: AppColors.textPrimary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -1934,7 +1819,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                     decoration: InputDecoration(
                       hintText: 'Where and how were they lost?',
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: AppColors.surface,
                       counterText: '',
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -1961,19 +1846,19 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.orange[50],
+                color: AppColors.warningBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange[200]!),
+                border: Border.all(color: AppColors.warningBorder),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                  Icon(Icons.info_outline, size: 16, color: AppColors.warning),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Only tag IDs awaiting print or flagged lost are sent to '
                       'paper. Tick a printed tag to send its code round again.',
-                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                      style: TextStyle(fontSize: 12, color: AppColors.warning),
                     ),
                   ),
                 ],
@@ -2001,8 +1886,8 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                       ? null
                       : (_hasTicks ? _flagLost : _print),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A7A3D),
-                    foregroundColor: Colors.white,
+                    backgroundColor: AppColors.brand,
+                    foregroundColor: AppColors.onBrand,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -2014,7 +1899,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppColors.onBrand,
                           ),
                         )
                       : Text(
@@ -2044,7 +1929,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: Colors.grey[700],
+          color: AppColors.textPrimary,
           letterSpacing: 0.5,
         ),
       ),
@@ -2058,8 +1943,8 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: isTicked ? Colors.red[50] : null,
-        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+        color: isTicked ? AppColors.dangerBg : null,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
@@ -2111,7 +1996,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                           'Mark lost',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey[700],
+                            color: AppColors.textPrimary,
                           ),
                         ),
                       ],
@@ -2122,7 +2007,7 @@ class _PrintSheetState extends ConsumerState<_PrintSheet> {
                     alignment: Alignment.centerRight,
                     child: Text(
                       '—',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                      style: TextStyle(fontSize: 13, color: AppColors.textFaint),
                     ),
                   ),
           ),

@@ -1,6 +1,8 @@
 // 📁 lib/screens/dispatcher_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:frontend/widgets/stat_card.dart';
+import 'package:frontend/config/app_colors.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
@@ -935,27 +937,27 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(
-                        child: _buildStatCard(
-                          'READY TO DISPATCH',
-                          '$readyToDispatch',
-                          'printed tags on hand',
-                          valueColor: const Color(0xFF1A7A3D),
+                        child: StatCard(
+                          label: 'READY TO DISPATCH',
+                          value: '$readyToDispatch',
+                          subtitle: 'printed tags on hand',
+                          valueColor: AppColors.brand,
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
-                        child: _buildStatCard(
-                          'OPEN BATCHES',
-                          '${dispatchableBatches.length}',
-                          'awaiting assignment',
+                        child: StatCard(
+                          label: 'OPEN BATCHES',
+                          value: '${dispatchableBatches.length}',
+                          subtitle: 'awaiting assignment',
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
-                        child: _buildStatCard(
-                          'DISPATCHED',
-                          '$dispatchedTagCount',
-                          'tags with field crew',
+                        child: StatCard(
+                          label: 'DISPATCHED',
+                          value: '$dispatchedTagCount',
+                          subtitle: 'tags with field crew',
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -1484,60 +1486,6 @@ class _DispatcherScreenState extends ConsumerState<DispatcherScreen> {
         ],
       ),
       child: child,
-    );
-  }
-
-  Widget _buildStatCard(
-    String label,
-    String value,
-    String subtitle, {
-    Color? valueColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey[600],
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: valueColor ?? Colors.black,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[500],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
