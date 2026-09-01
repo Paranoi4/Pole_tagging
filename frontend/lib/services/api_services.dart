@@ -12,6 +12,7 @@ import 'package:frontend/models/work_order.dart';
 import 'package:frontend/models/tag.dart';
 import 'package:frontend/models/city.dart';
 import 'package:frontend/models/crew.dart';
+import 'package:frontend/models/audit_entry.dart';
 
 /// Talks to the Poletagging API.
 ///
@@ -442,7 +443,6 @@ class ApiService {
     required int duId,
     required int workOrderId,
     required int quantity,
-    int? assignedTo,
   }) async {
     final response = await _send(() => http.post(
           Uri.parse('$baseUrl/batches'),
@@ -451,7 +451,6 @@ class ApiService {
             'du_id': duId,
             'work_order_id': workOrderId,
             'quantity': quantity,
-            'assigned_to': assignedTo,
           }),
         ));
 
@@ -527,25 +526,58 @@ class ApiService {
     }
   }
 
-  /// Update a single tag's status
-  Future<Tag> updateTagStatus(int tagId, String status) async {
+  /// Hands a printed batch to a field crew, or corrects which crew holds an
+  /// already-dispatched one.
+  ///
+  /// On a first hand-over the server moves the batch and every tag in it to
+  /// Dispatched in a single transaction, so there is no window where the two
+  /// disagree about who is holding them. On a crew correction it changes only
+  /// the crew — `dispatched_at` and the tag statuses stay put, because the tags
+  /// really did leave at the original moment.
+  ///
+  /// The crew is validated server-side against the caller's org and the batch's
+  /// DU, so a stale dropdown returns 404 rather than dispatching to the wrong
+  /// crew.
+  Future<Batch> dispatchBatchToCrew(int batchId, int crewId) async {
     final response = await _send(() => http.patch(
-          Uri.parse('$baseUrl/tags/$tagId/status?status=$status'),
+          Uri.parse('$baseUrl/batches/$batchId/assign?crew_id=$crewId'),
           headers: _authHeaders,
         ));
 
     if (response.statusCode == 200) {
-      return Tag.fromJson(jsonDecode(response.body));
+      return Batch.fromJson(jsonDecode(response.body));
     } else {
       throw ApiException.fromResponse(
         response.statusCode,
         response.body,
-        fallback: 'Failed to update tag status: ${response.statusCode}',
+        fallback: 'Failed to dispatch batch: ${response.statusCode}',
       );
     }
   }
 
-  /// Sets the same status on many tags, in chunks the backend will accept.
+  /// Takes a dispatched batch back off its crew.
+  ///
+  /// The batch and its tags return to Printed, the crew and `dispatched_at` are
+  /// cleared, and the batch reappears in the dispatch list. Refused with a 400
+  /// if any of its tags are already installed on poles.
+  Future<Batch> returnBatch(int batchId) async {
+    final response = await _send(() => http.patch(
+          Uri.parse('$baseUrl/batches/$batchId/return'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      return Batch.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to return batch: ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Sets the same status on one or more tags, in chunks the backend accepts.
   ///
   /// `PATCH /tags/bulk/status` refuses more than [maxBulkTagIds] ids per call,
   /// so a 500-tag batch goes out as 5 requests rather than one. The print sheet
@@ -554,8 +586,22 @@ class ApiService {
   /// Not atomic across chunks: if the third request fails, the first two are
   /// already committed. Callers should re-read the batch on failure rather than
   /// assume nothing changed.
-  Future<void> bulkUpdateTagStatus(List<int> tagIds, String status) async {
+  ///
+  /// [remarks] records why the status changed — the print flow sends it when
+  /// flagging tags Lost. Leaving it null keeps whatever remark each tag already
+  /// has, so a reprint does not wipe the note explaining an earlier loss.
+  Future<void> bulkUpdateTagStatus(
+    List<int> tagIds,
+    String status, {
+    String? remarks,
+  }) async {
     if (tagIds.isEmpty) return;
+
+    // Typed by the user, so it has to be escaped: a remark containing & or =
+    // would otherwise break apart into extra query params.
+    final remarksParam = (remarks == null || remarks.isEmpty)
+        ? ''
+        : '&remarks=${Uri.encodeQueryComponent(remarks)}';
 
     for (var start = 0; start < tagIds.length; start += maxBulkTagIds) {
       final end = (start + maxBulkTagIds).clamp(0, tagIds.length);
@@ -564,7 +610,9 @@ class ApiService {
       // The endpoint takes tag_ids as a repeated query param, not a JSON body.
       final query = chunk.map((id) => 'tag_ids=$id').join('&');
       final response = await _send(() => http.patch(
-            Uri.parse('$baseUrl/tags/bulk/status?$query&status=$status'),
+            Uri.parse(
+              '$baseUrl/tags/bulk/status?$query&status=$status$remarksParam',
+            ),
             headers: _authHeaders,
           ));
 
@@ -636,16 +684,26 @@ class ApiService {
     }
   }
 
-  Future<List<Crew>> getAllCrews({int? cityId}) => _fetchAllPages(
-      (skip, limit) => _getCrewsPage(skip: skip, limit: limit, cityId: cityId));
+  /// [duId] restricts the result to crews working a city under that DU — what
+  /// the dispatcher needs, so a batch is only ever offered to crews who cover
+  /// its poles. Both filters are applied on top of the caller's own org.
+  Future<List<Crew>> getAllCrews({int? cityId, int? duId}) =>
+      _fetchAllPages((skip, limit) => _getCrewsPage(
+            skip: skip,
+            limit: limit,
+            cityId: cityId,
+            duId: duId,
+          ));
 
   Future<List<Crew>> _getCrewsPage({
     int skip = 0,
     int limit = maxPageSize,
     int? cityId,
+    int? duId,
   }) async {
     final params = <String>['skip=$skip', 'limit=$limit'];
     if (cityId != null) params.add('city_id=$cityId');
+    if (duId != null) params.add('du_id=$duId');
 
     final response = await _send(() => http.get(
           Uri.parse('$baseUrl/crews?${params.join('&')}'),
@@ -660,6 +718,44 @@ class ApiService {
         response.statusCode,
         response.body,
         fallback: 'Failed to load crews: ${response.statusCode}',
+      );
+    }
+  }
+
+  // ===== AUDIT LOG =====
+
+  /// A page of the organization's audit trail, newest first.
+  ///
+  /// Admin-only and org-scoped server-side. Paginated on purpose: this is the
+  /// fastest-growing table in the schema, since printing one batch writes an
+  /// entry per tag.
+  ///
+  /// [search] matches a tag or batch code, a remark, a status, or a person's
+  /// name. [entityType] is 'tag' or 'batch'.
+  Future<AuditPage> getAuditLog({
+    int skip = 0,
+    int limit = 50,
+    String? search,
+    String? entityType,
+  }) async {
+    final params = <String>['skip=$skip', 'limit=$limit'];
+    if (search != null && search.isNotEmpty) {
+      params.add('search=${Uri.encodeQueryComponent(search)}');
+    }
+    if (entityType != null) params.add('entity_type=$entityType');
+
+    final response = await _send(() => http.get(
+          Uri.parse('$baseUrl/audit-log?${params.join('&')}'),
+          headers: _authHeaders,
+        ));
+
+    if (response.statusCode == 200) {
+      return AuditPage.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException.fromResponse(
+        response.statusCode,
+        response.body,
+        fallback: 'Failed to load audit trail: ${response.statusCode}',
       );
     }
   }

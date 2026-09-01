@@ -42,17 +42,37 @@ def list_crews(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     city_id: Optional[int] = Query(None, description="Filter by city"),
+    du_id: Optional[int] = Query(
+        None,
+        description="Only crews working a city under this DU",
+    ),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """List all crews for the current organization."""
+    """List crews for the caller's organization.
+
+    `du_id` narrows this to the crews that actually work that DU, reached
+    through the city they are tied to. The dispatcher needs it: a batch belongs
+    to one DU, and offering crews from a different DU invites handing a batch to
+    people who will never see those poles. Crews with no city are excluded by
+    the join, which is correct — an unplaced crew cannot be dispatched to.
+    """
     query = db.query(models.Crew).filter(
         models.Crew.org_code == current_user.org_code
     )
-    
+
+    if du_id:
+        # The DU is checked on the city, and the city's org is checked too, so a
+        # DU id belonging to another organization matches nothing rather than
+        # leaking its crews.
+        query = query.join(models.City, models.Crew.city_id == models.City.city_id).filter(
+            models.City.du_id == du_id,
+            models.City.org_code == current_user.org_code,
+        )
+
     if city_id:
         query = query.filter(models.Crew.city_id == city_id)
-    
+
     crews = query.order_by(models.Crew.crew_label).offset(skip).limit(limit).all()
     return crews
 

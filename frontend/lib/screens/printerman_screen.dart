@@ -16,9 +16,7 @@ import 'package:frontend/services/tag_sheet_pdf.dart';
 import 'package:printing/printing.dart';
 
 class PrinterManScreen extends ConsumerStatefulWidget {
-  final bool showDispatcherShortcut;
-
-  const PrinterManScreen({super.key, this.showDispatcherShortcut = false});
+  const PrinterManScreen({super.key});
 
   @override
   ConsumerState<PrinterManScreen> createState() => _PrinterManScreenState();
@@ -36,6 +34,10 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   Batch? _currentBatch;
   List<Tag>? _currentBatchTags;
   bool _isLoadingBatch = false;
+
+  /// In-flight guard for _loadMyCurrentBatch. Not part of the UI, so it is a
+  /// plain field rather than something setState touches.
+  bool _isLoadingMyBatch = false;
 
   // Tracks what the next-batch-code was last computed from, so we only
   // recompute only when the selected DU actually changes.
@@ -123,11 +125,24 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       });
     }
 
-    // Check if batch is in Pending status (ready to print)
-    final bool canPrint = _currentBatch != null &&
-        _currentBatch!.status.toLowerCase() == 'pending' &&
-        _currentBatchTags != null &&
-        _currentBatchTags!.isNotEmpty;
+    // Open whenever there is a batch to look at, not only when something is
+    // waiting to print. The sheet is also where tags get flagged lost, and a
+    // fully printed batch is exactly when that is needed — gating this on
+    // "something needs printing" locked the printerman out of the one screen
+    // that could unlock a reprint.
+    final bool canPrint =
+        _currentBatch != null && (_currentBatchTags?.isNotEmpty ?? false);
+
+    // Watched, not passed in from the route. On a browser refresh the route is
+    // built before the session is restored, so a flag computed there is false
+    // and stays false; watching means the icon appears as soon as the roles
+    // land.
+    final showDispatcherShortcut = ref
+            .watch(authProvider)
+            .user
+            ?.roles
+            .any((role) => role.roleName == 'Dispatcher') ??
+        false;
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -143,7 +158,7 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
         elevation: 1,
         centerTitle: false,
         actions: [
-          if (widget.showDispatcherShortcut)
+          if (showDispatcherShortcut)
             IconButton(
               icon: const Icon(Icons.local_shipping),
               tooltip: 'Dispatcher',
@@ -814,6 +829,12 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
   /// other person's, which would hide this one's own work and let both print
   /// the same batch.
   Future<void> _loadMyCurrentBatch() async {
+    // Called from a build-time guard, so a rebuild arriving before the response
+    // would fire a second GET /batches/my-current — and with it a second
+    // GET /batches/{id}/tags.
+    if (_isLoadingMyBatch) return;
+    _isLoadingMyBatch = true;
+
     try {
       final batch = await ref.read(apiProvider).getMyCurrentBatch();
       if (batch != null && mounted) {
@@ -839,6 +860,8 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
           _currentBatchTags = null;
         });
       }
+    } finally {
+      _isLoadingMyBatch = false;
     }
   }
 
@@ -1003,18 +1026,30 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
 
   // ─── Status Picker ──────────────────────────────────────────────
 
+  /// The ID picker for the tag whose row was clicked.
   void _showStatusPicker(Tag tag) {
-    showModalBottomSheet(
+    final batch = _currentBatch;
+    if (batch == null) return;
+
+    showDialog(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      builder: (_) => _IdPickerDialog(
+        batch: batch,
+        tag: tag,
+        onChanged: (updated) {
+          if (!mounted) return;
+          setState(() => _currentBatchTags = updated);
+        },
       ),
-      builder: (_) => _StatusPickerSheet(tag: tag),
     );
   }
 
   // ─── Print Modal ─────────────────────────────────────────────────
 
+  /// One sheet for the whole print loop: it prints what still needs paper and
+  /// it is where printed tags get flagged lost. Both live together because they
+  /// are the same job — you look at the batch, see what came out wrong, and
+  /// send those codes round again.
   void _showPrintModal(Batch batch, List<Tag> tags) {
     showModalBottomSheet(
       context: context,
@@ -1022,12 +1057,17 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _PrintConfirmSheet(
+      builder: (_) => _PrintSheet(
         batch: batch,
-        tags: tags,
-        onConfirm: () {
-          // Refresh the batch after printing
-          _loadCurrentBatch(batch.batchId);
+        initialTags: tags,
+        // Takes the sheet's own result instead of re-fetching it, so the card
+        // behind the sheet stays in step for free.
+        onChanged: (tags, updatedBatch) {
+          if (!mounted) return;
+          setState(() {
+            _currentBatchTags = tags;
+            if (updatedBatch != null) _currentBatch = updatedBatch;
+          });
         },
       ),
     );
@@ -1151,173 +1191,615 @@ class _PrinterManScreenState extends ConsumerState<PrinterManScreen> {
 }
 
 // ============================================================
-// STATUS PICKER SHEET
+// ID PICKER — CHANGE STATUS
 // ============================================================
 
-class _StatusPickerSheet extends ConsumerStatefulWidget {
-  final Tag tag;
-  const _StatusPickerSheet({required this.tag});
+/// The statuses a printerman can set by hand, and what each one means.
+///
+/// Deliberately not the full [TagStatus] list. Printed, Dispatched and
+/// Installed are set by the flows that actually do those things — printing,
+/// handing a batch over, a crew putting a tag on a pole — so offering them here
+/// would let someone claim an event that never happened. What is left are the
+/// three a person genuinely decides:
+const _manualStatuses = <String, String>{
+  'Available':
+      'Back in the pool. The code can be printed again.',
+  'Do Not Use':
+      'The code itself is unusable — it reads as something that cannot go up on '
+          'a pole in public. Withdrawn for good; it will never be printed.',
+  'Lost Printed':
+      'The printed tag went missing before it reached a pole. The code goes '
+          'back round for a reprint.',
+  'Jam Paper':
+      'The paper jammed and the tag never printed properly. The code goes back '
+          'round for a reprint.',
+};
 
-  @override
-  ConsumerState<_StatusPickerSheet> createState() => _StatusPickerSheetState();
-}
+/// Statuses that take a tag out of use and therefore have to say why. Mirrors
+/// STATUSES_REQUIRING_REMARKS on the server, which is what actually enforces
+/// it — this only spares the user a round trip to be told.
+const _statusesRequiringRemarks = {'Do Not Use', 'Lost Printed', 'Jam Paper'};
 
-class _StatusPickerSheetState extends ConsumerState<_StatusPickerSheet> {
-  String _selectedStatus = '';
-  bool _isUpdating = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedStatus = widget.tag.status;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final statuses = [
-      'Available',
-      'Printed',
-      'Dispatched',
-      'Installed',
-      'Lost',
-      'Damaged'
-    ];
-
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        left: 20,
-        right: 20,
-        top: 20,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Update Status',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Tag: ${widget.tag.tagCode}',
-            style: const TextStyle(color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          ...statuses.map((status) {
-            return RadioListTile<String>(
-              title: Text(status),
-              value: status,
-              groupValue: _selectedStatus,
-              onChanged: _isUpdating
-                  ? null
-                  : (value) {
-                      setState(() => _selectedStatus = value!);
-                    },
-            );
-          }),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton(
-                  onPressed: _isUpdating ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _isUpdating
-                      ? null
-                      : () async {
-                          setState(() => _isUpdating = true);
-
-                          try {
-                            // TODO: Call API to update tag status
-                            // await ref.read(apiProvider).updateTagStatus(
-                            //   widget.tag.tagId,
-                            //   _selectedStatus,
-                            // );
-
-                            // Simulate API call
-                            await Future.delayed(const Duration(seconds: 1));
-
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content:
-                                      Text('✅ Status updated successfully!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                              Navigator.pop(context);
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content:
-                                      Text('❌ Failed to update status: $e'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isUpdating = false);
-                            }
-                          }
-                        },
-                  child: _isUpdating
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Update Status'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================
-// PRINT CONFIRM SHEET
-// ============================================================
-
-class _PrintConfirmSheet extends ConsumerStatefulWidget {
+class _IdPickerDialog extends ConsumerStatefulWidget {
   final Batch batch;
-  final List<Tag> tags;
-  final VoidCallback onConfirm;
 
-  const _PrintConfirmSheet({
+  final Tag tag;
+
+  /// Passed the updated tag list after a successful change, so the table behind
+  /// the dialog follows along without re-fetching what we already have.
+  final void Function(List<Tag> tags) onChanged;
+
+  const _IdPickerDialog({
     required this.batch,
-    required this.tags,
-    required this.onConfirm,
+    required this.tag,
+    required this.onChanged,
   });
 
   @override
-  ConsumerState<_PrintConfirmSheet> createState() => _PrintConfirmSheetState();
+  ConsumerState<_IdPickerDialog> createState() => _IdPickerDialogState();
 }
 
-class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
-  bool _isPrinting = false;
+class _IdPickerDialogState extends ConsumerState<_IdPickerDialog> {
+  final TextEditingController _remarksController = TextEditingController();
+
+  late String _newStatus = _defaultStatusFor(widget.tag);
+  bool _remarksMissing = false;
+  bool _isSaving = false;
+
+  /// Shows the tag's current status when it is one a person can set, so the
+  /// dropdown opens reflecting reality. A tag mid-flow (Printed, Dispatched,
+  /// Installed) has no manual equivalent, so those fall back to Available —
+  /// the only sensible thing to do to a tag you are correcting by hand.
+  String _defaultStatusFor(Tag tag) {
+    if (_manualStatuses.containsKey(tag.status)) return tag.status;
+    return 'Available';
+  }
+
+  @override
+  void dispose() {
+    _remarksController.dispose();
+    super.dispose();
+  }
+
+  bool get _remarksRequired => _statusesRequiringRemarks.contains(_newStatus);
+
+  Future<void> _apply() async {
+    final remarks = _remarksController.text.trim();
+
+    if (_remarksRequired && remarks.isEmpty) {
+      setState(() => _remarksMissing = true);
+      return;
+    }
+
+    if (_newStatus == widget.tag.status && remarks.isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _remarksMissing = false;
+      _isSaving = true;
+    });
+
+    try {
+      await ref.read(apiProvider).bulkUpdateTagStatus(
+            [widget.tag.tagId],
+            _newStatus,
+            remarks: remarks.isEmpty ? null : remarks,
+          );
+
+      // Re-read once and hand the result to the caller, rather than letting both
+      // this dialog and the screen behind it fetch the same rows.
+      final fresh =
+          await ref.read(apiProvider).getBatchTags(widget.batch.batchId);
+      if (!mounted) return;
+      widget.onChanged(fresh);
+
+      final code = widget.tag.tagCode;
+      final status = _newStatus;
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('$code set to $status'),
+          backgroundColor: const Color(0xFF1A7A3D),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed to change status: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final batch = widget.batch;
-    final tags = widget.tags;
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      titlePadding: const EdgeInsets.fromLTRB(24, 20, 12, 0),
+      title: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Edit status',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+          ),
+          IconButton(
+            onPressed: _isSaving ? null : () => Navigator.pop(context),
+            icon: const Icon(Icons.close),
+            color: Colors.grey[600],
+            tooltip: 'Close',
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ─── The tag in hand ──────────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.tag.tagCode,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            [
+                              'Pole ${widget.tag.poleNo}',
+                              widget.batch.batchCode,
+                              if (widget.batch.workOrder != null)
+                                widget.batch.workOrder!.workOrderCode,
+                            ].join(' · '),
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[700]),
+                          ),
+                          const SizedBox(height: 6),
+                          _statusPill(widget.tag.status),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
 
-    // A tag held back as "Do Not Use" is one the office has taken out of
-    // circulation. It still shows in the review list so the printerman can see
-    // why the sheet is short, but it never reaches paper and never gets marked.
-    final printableTags =
-        tags.where((t) => t.status.toLowerCase() != 'do not use').toList();
+              // ─── New status ───────────────────────────────────
+              _label('CHANGE STATUS TO'),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: _newStatus,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                items: _manualStatuses.keys
+                    .map((s) => DropdownMenuItem<String>(
+                          value: s,
+                          child: Text(s, style: const TextStyle(fontSize: 14)),
+                        ))
+                    .toList(),
+                onChanged: _isSaving
+                    ? null
+                    : (s) {
+                        if (s == null) return;
+                        setState(() {
+                          _newStatus = s;
+                          // The old warning does not apply to the new choice.
+                          _remarksMissing = false;
+                        });
+                      },
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _manualStatuses[_newStatus] ?? '',
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 16),
+
+              // ─── Remarks ──────────────────────────────────────
+              Row(
+                children: [
+                  _label('REMARKS'),
+                  const Spacer(),
+                  Text(
+                    _remarksRequired ? 'required for $_newStatus' : 'optional',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _remarksRequired
+                          ? Colors.orange[800]
+                          : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _remarksController,
+                enabled: !_isSaving,
+                maxLines: 3,
+                // Matches the endpoint's cap, so an over-long remark is stopped
+                // here rather than coming back as a 422.
+                maxLength: 1000,
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: switch (_newStatus) {
+                    'Do Not Use' => 'Why can this code not be used?',
+                    'Lost Printed' => 'Where and how was it lost?',
+                    'Jam Paper' => 'What happened in the printer?',
+                    _ => 'Anything worth noting (optional)',
+                  },
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  errorText: _remarksMissing
+                      ? 'A reason is required to set $_newStatus.'
+                      : null,
+                ),
+                onChanged: (_) {
+                  if (_remarksMissing) {
+                    setState(() => _remarksMissing = false);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+      actions: [
+        OutlinedButton(
+          onPressed: _isSaving ? null : () => Navigator.pop(context),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _isSaving ? null : _apply,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF1A7A3D),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: _isSaving
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Apply change'),
+        ),
+      ],
+    );
+  }
+
+  Widget _label(String text) => Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[700],
+          letterSpacing: 0.5,
+        ),
+      );
+}
+
+// ============================================================
+// SHARED HELPERS
+// ============================================================
+
+/// Whether this tag still has to reach paper.
+///
+/// Three cases: it has never been printed (Available), the printed one was lost
+/// (Lost Printed), or the paper jammed and it never printed properly (Jam
+/// Paper). Everything else is left alone — already Printed, out with a crew,
+/// Installed, Damaged, or withdrawn as Do Not Use — so a reprint sends only the
+/// codes that actually need re-running rather than the whole batch again.
+///
+/// Do Not Use is excluded on purpose and permanently: that code reads as
+/// something that cannot go up on a pole in public, so it must never reach paper
+/// no matter how many times the batch is printed.
+///
+/// Mirrors PRINTABLE_TAG_STATUSES on the server, which is what the print flow
+/// and batch creation actually enforce.
+bool _needsPrint(Tag tag) {
+  const printable = {'available', 'lost printed', 'jam paper'};
+  return printable.contains(tag.status.toLowerCase());
+}
+
+/// The small coloured status chip used by both sheets.
+Widget _statusPill(String status) {
+  Color color;
+  switch (status.toLowerCase()) {
+    case 'available':
+      color = Colors.green;
+      break;
+    case 'printed':
+      color = Colors.blue;
+      break;
+    case 'dispatched':
+      color = Colors.orange;
+      break;
+    case 'installed':
+      color = Colors.purple;
+      break;
+    case 'lost printed':
+      color = Colors.red;
+      break;
+    case 'jam paper':
+      // Amber, not red: the code is not lost, it just has to go through the
+      // printer again.
+      color = Colors.deepOrange;
+      break;
+    case 'do not use':
+      // Grey rather than red: it is not a loss or a fault, the code is simply
+      // withdrawn and will never be printed.
+      color = Colors.blueGrey;
+      break;
+    case 'damaged':
+      color = Colors.red;
+      break;
+    default:
+      color = Colors.grey;
+  }
+
+  return Align(
+    alignment: Alignment.centerLeft,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
+    ),
+  );
+}
+
+// ============================================================
+// PRINT SHEET
+// ============================================================
+
+/// The whole print loop in one sheet: it sends whatever still needs paper, and
+/// it is where a printed tag gets flagged lost so its code comes round again.
+///
+/// Both jobs live here because they are the same job. The printerman prints,
+/// looks at what came out, and marks the jams — so the sheet stays open after a
+/// print and simply re-reads the batch, rather than closing and popping a
+/// second dialog. Every tag in the batch is listed with its real status, so it
+/// is always clear which codes are done, which are queued, and which were lost.
+class _PrintSheet extends ConsumerStatefulWidget {
+  final Batch batch;
+  final List<Tag> initialTags;
+
+  /// Lets the card behind the sheet follow along without the sheet closing.
+  ///
+  /// Handed the rows the sheet has just read, rather than being a bare "go and
+  /// refresh" signal — the sheet has already paid for that request, and having
+  /// the parent fetch the same tags again made every print and lost-flag issue
+  /// two identical GET /batches/{id}/tags calls. `updatedBatch` is non-null only
+  /// when the batch row itself changed, so the status badge behind the sheet
+  /// does not go stale either.
+  final void Function(List<Tag> tags, Batch? updatedBatch) onChanged;
+
+  const _PrintSheet({
+    required this.batch,
+    required this.initialTags,
+    required this.onChanged,
+  });
+
+  @override
+  ConsumerState<_PrintSheet> createState() => _PrintSheetState();
+}
+
+class _PrintSheetState extends ConsumerState<_PrintSheet> {
+  /// Server order is authoritative — GET /batches/{id}/tags sorts by tag_id, so
+  /// the list never reshuffles when a status changes.
+  late List<Tag> _tags = widget.initialTags;
+
+  /// Ids rather than Tag objects, so a tick survives the list being re-read.
+  final Set<int> _lostTagIds = {};
+  final TextEditingController _remarksController = TextEditingController();
+  bool _isBusy = false;
+  bool _remarksMissing = false;
+
+  @override
+  void dispose() {
+    _remarksController.dispose();
+    super.dispose();
+  }
+
+  List<Tag> get _printable => _tags.where(_needsPrint).toList();
+
+  bool get _hasTicks => _lostTagIds.isNotEmpty;
+
+  /// Only a tag that actually reached paper can be lost. An Available one has
+  /// not been printed yet, and a Lost one is already flagged.
+  bool _canFlagLost(Tag tag) => tag.status.toLowerCase() == 'printed';
+
+  void _toggleLost(int tagId) {
+    setState(() {
+      // remove() reports whether it was present, which makes this a toggle.
+      if (!_lostTagIds.remove(tagId)) {
+        _lostTagIds.add(tagId);
+      }
+      // The remark only applies while something is ticked.
+      if (_lostTagIds.isEmpty) _remarksMissing = false;
+    });
+  }
+
+  /// Re-reads the batch's tags once and shares that single result with the
+  /// screen behind the sheet.
+  Future<void> _reload({Batch? updatedBatch}) async {
+    final tags = await ref.read(apiProvider).getBatchTags(widget.batch.batchId);
+    if (!mounted) return;
+    setState(() => _tags = tags);
+    widget.onChanged(tags, updatedBatch);
+  }
+
+  // ─── Print ──────────────────────────────────────────────────────
+
+  Future<void> _print() async {
+    final printable = _printable;
+    if (printable.isEmpty) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _isBusy = true);
+
+    try {
+      // Nothing is marked until the printer takes the job: a cancelled dialog
+      // must leave the codes untouched, or codes that never reached paper are
+      // burned.
+      final pdfBytes = await TagSheetPdf.build(
+        batch: widget.batch,
+        tags: printable,
+      );
+
+      final sentToPrinter = await Printing.layoutPdf(
+        onLayout: (_) async => pdfBytes,
+        name: '${widget.batch.batchCode}.pdf',
+      );
+
+      if (!sentToPrinter) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Print cancelled — nothing was marked as printed.'),
+          ),
+        );
+        return;
+      }
+
+      // One bulk call per 100 tags, not one per tag.
+      await ref.read(apiProvider).bulkUpdateTagStatus(
+            printable.map((t) => t.tagId).toList(),
+            'Printed',
+          );
+      // Returns the saved row, so the fresh batch comes back from the call that
+      // changed it rather than needing a GET of its own.
+      final updatedBatch = await ref.read(apiProvider).updateBatchStatus(
+            widget.batch.batchId,
+            'Printed',
+          );
+
+      await _reload(updatedBatch: updatedBatch);
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('✅ ${printable.length} tags printed'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed to print: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  // ─── Flag lost ──────────────────────────────────────────────────
+
+  Future<void> _flagLost() async {
+    final remarks = _remarksController.text.trim();
+
+    // Required, not optional: a tag written off as Lost with no reason recorded
+    // is a code nobody can account for when the batch is audited later.
+    if (remarks.isEmpty) {
+      setState(() => _remarksMissing = true);
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final flaggedCount = _lostTagIds.length;
+
+    setState(() {
+      _remarksMissing = false;
+      _isBusy = true;
+    });
+
+    try {
+      await ref.read(apiProvider).bulkUpdateTagStatus(
+            _lostTagIds.toList(),
+            'Lost Printed',
+            remarks: remarks,
+          );
+
+      _lostTagIds.clear();
+      _remarksController.clear();
+      await _reload();
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '$flaggedCount tag ID(s) flagged Lost — ready to reprint',
+          ),
+          backgroundColor: Colors.orange[800],
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed to flag tags: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final printableCount = _printable.length;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -1354,7 +1836,8 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                       ),
                     ),
                     Text(
-                      '${batch.batchCode} · ${printableTags.length} tag IDs queued',
+                      '${widget.batch.batchCode} · $printableCount of '
+                      '${_tags.length} tag IDs queued',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey[600],
@@ -1363,13 +1846,19 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                   ],
                 ),
               ),
+              IconButton(
+                onPressed: _isBusy ? null : () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+                color: Colors.grey[600],
+                tooltip: 'Close',
+              ),
             ],
           ),
           const SizedBox(height: 16),
 
           // ─── Tag Table ──────────────────────────────────────────
           Container(
-            constraints: const BoxConstraints(maxHeight: 400),
+            constraints: const BoxConstraints(maxHeight: 380),
             decoration: BoxDecoration(
               border: Border.all(color: Colors.grey[300]!),
               borderRadius: BorderRadius.circular(8),
@@ -1395,211 +1884,122 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                   ),
                   child: Row(
                     children: [
-                      Expanded(
-                        flex: 3,
-                        child: Text(
-                          'CODE',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 3,
-                        child: Text(
-                          'POLE NO.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 3,
-                        child: Text(
-                          'STATUS',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ),
+                      _header('CODE', flex: 3),
+                      _header('POLE NO.', flex: 3),
+                      _header('STATUS', flex: 3),
+                      _header('LOST?', flex: 3, alignRight: true),
                     ],
                   ),
                 ),
                 // Table Rows
                 Expanded(
                   child: SingleChildScrollView(
-                    child: Column(
-                      children: tags.map((tag) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(color: Colors.grey[200]!),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  tag.tagCode,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  tag.poleNo,
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: _buildStatusPillSmall(tag.status),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
+                    child: Column(children: _tags.map(_buildRow).toList()),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ─── Remarks (only once something is ticked) ─────────────
+          if (_hasTicks) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'REMARKS FOR LOST TAGS (REQUIRED)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                      letterSpacing: 0.5,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          // ─── Footer Note ────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.orange[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange[200]!),
-            ),
-            child: const Row(
-              children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: Colors.orange,
-                ),
-                SizedBox(width: 8),
-                Text(
-                  'Tag IDs set to Do Not Use are skipped',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.orange,
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _remarksController,
+                    enabled: !_isBusy,
+                    maxLines: 2,
+                    // Matches the endpoint's cap, so an over-long remark is
+                    // stopped here rather than coming back as a 422.
+                    maxLength: 1000,
+                    decoration: InputDecoration(
+                      hintText: 'Where and how were they lost?',
+                      filled: true,
+                      fillColor: Colors.white,
+                      counterText: '',
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      errorText: _remarksMissing
+                          ? 'Remarks are required to flag tags as lost.'
+                          : null,
+                    ),
+                    onChanged: (_) {
+                      if (_remarksMissing) {
+                        setState(() => _remarksMissing = false);
+                      }
+                    },
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ] else ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Only tag IDs awaiting print or flagged lost are sent to '
+                      'paper. Tick a printed tag to send its code round again.',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 16),
 
           // ─── Buttons ─────────────────────────────────────────────
+          // One primary action, whose job follows the sheet's state: with tags
+          // ticked it saves them as Lost, otherwise it prints what is queued.
           Row(
             children: [
               Expanded(
                 child: TextButton(
-                  onPressed: _isPrinting ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  onPressed: _isBusy ? null : () => Navigator.pop(context),
+                  child: const Text('Close'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _isPrinting || printableTags.isEmpty
+                  onPressed: _isBusy || (!_hasTicks && printableCount == 0)
                       ? null
-                      : () async {
-                          setState(() => _isPrinting = true);
-
-                          try {
-                            // 1. Build the sheet and hand it to a printer.
-                            // Nothing is marked until this comes back true: a
-                            // cancelled dialog or a printer that refused the
-                            // job must leave the tag IDs untouched, or codes
-                            // that never reached paper are burned.
-                            final pdfBytes = await TagSheetPdf.build(
-                              batch: batch,
-                              tags: printableTags,
-                            );
-
-                            final sentToPrinter = await Printing.layoutPdf(
-                              onLayout: (_) async => pdfBytes,
-                              name: '${batch.batchCode}.pdf',
-                            );
-
-                            if (!sentToPrinter) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Print cancelled — nothing was marked as printed.',
-                                    ),
-                                  ),
-                                );
-                              }
-                              return;
-                            }
-
-                            // 2. Update the printed tags to "Printed".
-                            // One bulk call per 100 tags, not one call per tag:
-                            // a 500-tag batch was 500 round trips.
-                            await ref.read(apiProvider).bulkUpdateTagStatus(
-                                  printableTags.map((t) => t.tagId).toList(),
-                                  'Printed',
-                                );
-
-                            // 3. Update batch status to "Printed"
-                            await ref.read(apiProvider).updateBatchStatus(
-                                  batch.batchId,
-                                  'Printed',
-                                );
-
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    '✅ ${printableTags.length} tags printed',
-                                  ),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-
-                              // Refresh the batch
-                              widget.onConfirm();
-                              Navigator.pop(context);
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('❌ Failed to print: $e'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isPrinting = false);
-                            }
-                          }
-                        },
+                      : (_hasTicks ? _flagLost : _print),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1A7A3D),
                     foregroundColor: Colors.white,
@@ -1608,7 +2008,7 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: _isPrinting
+                  child: _isBusy
                       ? const SizedBox(
                           height: 20,
                           width: 20,
@@ -1617,7 +2017,13 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Print tags'),
+                      : Text(
+                          _hasTicks
+                              ? 'Flag lost & reprint'
+                              : printableCount == 0
+                                  ? 'Nothing to print'
+                                  : 'Print tags',
+                        ),
                 ),
               ),
             ],
@@ -1627,50 +2033,100 @@ class _PrintConfirmSheetState extends ConsumerState<_PrintConfirmSheet> {
     );
   }
 
-  // ─── Small Status Pill ──────────────────────────────────────────
+  // ─── Row / Header Helpers ───────────────────────────────────────
 
-  Widget _buildStatusPillSmall(String status) {
-    Color color;
-    switch (status.toLowerCase()) {
-      case 'available':
-        color = Colors.green;
-        break;
-      case 'printed':
-        color = Colors.blue;
-        break;
-      case 'dispatched':
-        color = Colors.orange;
-        break;
-      case 'installed':
-        color = Colors.purple;
-        break;
-      case 'lost':
-        color = Colors.red;
-        break;
-      case 'damaged':
-        color = Colors.red;
-        break;
-      default:
-        color = Colors.grey;
-    }
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+  Widget _header(String text, {int flex = 1, bool alignRight = false}) {
+    return Expanded(
+      flex: flex,
+      child: Text(
+        text,
+        textAlign: alignRight ? TextAlign.right : TextAlign.left,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[700],
+          letterSpacing: 0.5,
         ),
-        child: Text(
-          status,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: color,
+      ),
+    );
+  }
+
+  Widget _buildRow(Tag tag) {
+    final isTicked = _lostTagIds.contains(tag.tagId);
+    final canFlag = _canFlagLost(tag);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: isTicked ? Colors.red[50] : null,
+        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Text(
+              tag.tagCode,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
           ),
-        ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              tag.poleNo,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          // Shows Lost the moment it is ticked, so the row reflects what saving
+          // will do rather than what the server currently holds.
+          Expanded(
+            flex: 3,
+            child: _statusPill(isTicked ? 'Lost Printed' : tag.status),
+          ),
+          Expanded(
+            flex: 3,
+            child: canFlag
+                ? InkWell(
+                    onTap: _isBusy ? null : () => _toggleLost(tag.tagId),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: Checkbox(
+                            value: isTicked,
+                            visualDensity: VisualDensity.compact,
+                            onChanged: _isBusy
+                                ? null
+                                : (_) => _toggleLost(tag.tagId),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Mark lost',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                // Nothing to lose yet (Available) or already flagged (Lost).
+                : Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '—',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }

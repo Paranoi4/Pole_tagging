@@ -48,6 +48,11 @@ class DUNotifier extends StateNotifier<DUState> {
   DUNotifier(this._api) : super(DUState.initial());
 
   Future<void> loadDUs() async {
+    // A request already in flight is the answer to this one. Screens kick this
+    // off from build-time guards, so a rebuild before the first response
+    // arrives would otherwise fire a second identical GET /du.
+    if (state.isLoading) return;
+
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final dus = await _api.getDUs();
@@ -72,6 +77,11 @@ class DUNotifier extends StateNotifier<DUState> {
   /// Python and Dart — and it also meant downloading every batch just to find
   /// the highest number.
   Future<void> loadNextBatchCode() async {
+    // Same reasoning as loadDUs: the printerman screen asks for this from a
+    // build-time guard, and two navigations to the same screen on startup made
+    // it fire GET /batches/next-code twice.
+    if (state.isLoadingNextCode) return;
+
     state = state.copyWith(isLoadingNextCode: true, clearError: true);
     try {
       final code = await _api.getNextBatchCode();

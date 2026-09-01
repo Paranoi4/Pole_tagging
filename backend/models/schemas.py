@@ -184,12 +184,14 @@ class BatchCreate(BaseModel):
     du_id: int
     work_order_id: int
     quantity: int = Field(ge=1, le=1000)
-    assigned_to: Optional[int] = None
+    # No crew or dispatcher here. A batch is created unassigned and only gets
+    # either through PATCH /batches/{id}/assign, which validates the crew
+    # against the caller's org and the batch's DU. Accepting one at creation
+    # meant an arbitrary id was written with no validation at all.
 
 
 class BatchUpdate(BaseModel):
     status: Optional[str] = None
-    assigned_to: Optional[int] = None
 
 
 class NextBatchCode(BaseModel):
@@ -214,13 +216,21 @@ class BatchOut(BaseModel):
     batch_code: str
     quantity: int
     status: str
-    assigned_to: Optional[int] = None
+    # The hand-over record: which crew has it, who released it, and when. All
+    # three are null until the batch is dispatched, and all three are cleared
+    # together if it is returned.
+    #
+    # Flat ids only — the dispatcher already holds the crew list it chose from,
+    # so nesting the crew object here would repeat the same label and city on
+    # every batch in a page.
+    assigned_crew_id: Optional[int] = None
+    dispatched_by: Optional[int] = None
+    dispatched_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
-    
+
     du: Optional[DUOut] = None
     work_order: Optional[WorkOrderSummary] = None
-    assigned_crew: Optional[UserOut] = None
     org_code: str
     # No `tags` list. A batch holds up to 1000 of them and each TagOut nests its
     # own du and batch, so including them made one batch ~275 KB and a page of
@@ -308,3 +318,36 @@ class CrewOut(BaseModel):
 class CrewUpdate(BaseModel):
     crew_label: Optional[str] = Field(default=None, min_length=1, max_length=255)
     city_id: Optional[int] = None
+
+# ============================================================
+# AUDIT LOG
+# ============================================================
+
+class AuditLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    audit_id: int
+    entity_type: str
+    entity_id: int
+    # Null only on rows written before entity_code existed whose entity has
+    # since been deleted; every new row carries it.
+    entity_code: Optional[str] = None
+    from_status: Optional[str] = None
+    to_status: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: datetime
+    performed_by: Optional[int] = None
+    # Resolved from the joined user so the trail reads as names rather than ids.
+    # Null if that account has since been deleted (performed_by is SET NULL).
+    performed_by_name: Optional[str] = None
+
+
+class AuditLogPage(BaseModel):
+    """A page of the trail plus the total behind it.
+
+    The count comes back with the page because the screen's header states how
+    many events exist; asking for it separately would be a second round trip for
+    a number the same request could have carried.
+    """
+
+    total: int
+    items: List[AuditLogOut]

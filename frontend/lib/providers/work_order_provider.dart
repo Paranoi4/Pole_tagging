@@ -47,11 +47,21 @@ class WorkOrderNotifier extends StateNotifier<WorkOrderState> {
 
   WorkOrderNotifier(this._api) : super(WorkOrderState.initial());
 
+  /// The query currently being fetched, so a duplicate of it can be dropped
+  /// while a genuinely different one still gets through.
+  String? _inFlightSearch;
+
   /// Loads work orders matching [search] — empty for the 20 most recent.
   ///
   /// No DU argument: an org owns one DU, so the server's org scoping already
   /// narrows it to the same rows.
   Future<void> searchWorkOrders({String search = ''}) async {
+    // Drop a repeat of the search already in flight. Only an identical query is
+    // skipped — a different one has to go through, or the type-ahead would
+    // swallow keystrokes while an earlier request was still open.
+    if (state.isLoading && search == _inFlightSearch) return;
+    _inFlightSearch = search;
+
     state = state.copyWith(isLoading: true, clearError: true);
 
     try {

@@ -67,33 +67,18 @@ class _AppRouterState extends ConsumerState<AppRouter> {
         GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
         GoRoute(path: '/users', builder: (_, __) => const UsersScreen()),
         GoRoute(path: '/roles', builder: (_, __) => const RolesScreen()),
+        // Neither screen is handed a role flag here. Route builders run before
+        // the loadUser() below has restored the session, so anything computed
+        // from authProvider at this point is false on a browser refresh and,
+        // being a constructor argument, never corrects itself once the roles
+        // arrive. Each screen watches authProvider itself instead.
         GoRoute(
           path: '/printerman',
-          builder: (_, __) {
-            final roles = ref
-                .read(authProvider)
-                .user
-                ?.roles
-                .map((role) => role.roleName)
-                .toSet();
-            return PrinterManScreen(
-              showDispatcherShortcut: roles?.contains('Dispatcher') ?? false,
-            );
-          },
+          builder: (_, __) => const PrinterManScreen(),
         ),
         GoRoute(
           path: '/dispatcher',
-          builder: (_, __) {
-            final roles = ref
-                .read(authProvider)
-                .user
-                ?.roles
-                .map((role) => role.roleName)
-                .toSet();
-            return DispatcherScreen(
-              showPrintermanShortcut: roles?.contains('Printerman') ?? false,
-            );
-          },
+          builder: (_, __) => const DispatcherScreen(),
         ),
       ],
     );

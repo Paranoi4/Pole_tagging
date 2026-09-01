@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from config.database import Base
@@ -106,13 +106,20 @@ class Tag(Base):
 
     __table_args__ = (
         UniqueConstraint('du_id', 'tag_code', name='uq_tag_du_code'),
+        # "The tags in this batch" is the most frequent query in the app — the
+        # printerman's current batch, the print sheet's refresh, every batch the
+        # dispatcher opens. Without this the pool's three million rows were
+        # scanned in full to return the twenty-four belonging to one batch,
+        # about 725ms per call; with it, ~0.05ms.
+        Index('ix_tags_batch_id', 'batch_id'),
     )
 
     STATUS_AVAILABLE = "Available"
     STATUS_PRINTED = "Printed"
     STATUS_DISPATCHED = "Dispatched"
     STATUS_INSTALLED = "Installed"
-    STATUS_LOST = "Lost"
+    STATUS_LOST_PRINTED = "Lost Printed"
+    STATUS_DO_NOT_USE = "Do Not Use"
     STATUS_DAMAGED = "Damaged"
 
 
@@ -130,14 +137,28 @@ class Batch(Base):
     batch_code = Column(String(50), nullable=False, unique=True)
     quantity = Column(Integer, nullable=False, default=0)
     status = Column(String(50), nullable=False, default="Pending")
-    assigned_to = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    # The staff member who released the batch — the other half of the hand-over
+    # record. Stamped from the token holder, never accepted from the client, the
+    # same way created_by is. Was called `assigned_to` back when a batch was
+    # handed to a user rather than to a crew.
+    dispatched_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    # Who the batch was handed to in the field. A crew, not a user: crews are
+    # labelled by their lead and tied to a city, which is what the dispatcher
+    # picks from.
+    assigned_crew_id = Column(Integer, ForeignKey("crews.crew_id", ondelete="SET NULL"), nullable=True)
+    # When the batch was handed to that crew. Null until it goes out, and never
+    # rewritten afterwards: `status` only says a batch *is* dispatched, and the
+    # tags' own updated_at is overwritten by the next field scan, so without
+    # this the moment of hand-over is not recorded anywhere.
+    dispatched_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     org_code = Column(String(10), nullable=False)
     du = relationship("DistributionUtility", back_populates="batches")
     work_order = relationship("WorkOrder", back_populates="batches")
     tags = relationship("Tag", back_populates="batch")
-    assigned_crew = relationship("User", foreign_keys=[assigned_to])
+    crew = relationship("Crew", foreign_keys=[assigned_crew_id])
+    dispatcher = relationship("User", foreign_keys=[dispatched_by])
     creator = relationship("User", foreign_keys=[created_by])
 
     STATUS_PENDING = "Pending"
@@ -190,3 +211,55 @@ class Crew(Base):
     city = relationship("City")
     creator = relationship("User", foreign_keys=[created_by])
     members = relationship("User", back_populates="crew", foreign_keys="User.crew_id")
+
+class AuditLog(Base):
+    """Append-only record of every status change to a tag or a batch.
+
+    Exists because the tables it watches only ever hold *current* state: `status`
+    is overwritten on each change and `remarks` with it, so "what happened to
+    this tag, when, and who did it" was unanswerable. Each change appends a row
+    here instead of replacing what came before.
+
+    Written inside the same transaction as the change it describes, so the two
+    cannot disagree — if the change rolls back, so does its log entry.
+    """
+
+    __tablename__ = "audit_log"
+
+    audit_id = Column(Integer, primary_key=True, index=True)
+    performed_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+
+    # Deliberately not a foreign key. It holds a tags.tag_id or a
+    # batches.batch_id depending on entity_type, and one column cannot reference
+    # two tables. That also means history outlives what it describes: deleting a
+    # batch leaves its audit trail intact, which is the whole point of keeping
+    # one. Pair it with entity_type — an id alone is ambiguous.
+    entity_type = Column(String(20), nullable=False)
+    entity_id = Column(Integer, nullable=False)
+
+    # The human-readable code as it stood at the time — "BT-N-2026-0048" or
+    # "N31YF". Copied rather than looked up, which is deliberate for a log: the
+    # id alone cannot be resolved once the row it points at is gone, and a
+    # deleted batch is exactly the case an audit trail exists to explain. It also
+    # spares every read a polymorphic join across tags and batches.
+    entity_code = Column(String(50), nullable=True)
+
+    org_code = Column(String(10), nullable=False)
+
+    # Null on a creation entry, where there was no previous state.
+    from_status = Column(String(50), nullable=True)
+    to_status = Column(String(50), nullable=True)
+
+    # The reason given for this particular change, kept forever. The tag's own
+    # `remarks` column holds only the latest one; this is where the history of
+    # them lives.
+    remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    performer = relationship("User", foreign_keys=[performed_by])
+
+    __table_args__ = (
+        # "Show me this tag's history" is the only read this table has, and it
+        # always arrives as an (entity_type, entity_id) pair.
+        Index("ix_audit_log_entity", "entity_type", "entity_id"),
+    )

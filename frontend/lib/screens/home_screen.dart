@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/auth_providers.dart';
 import 'package:frontend/widgets/add_crew_form.dart'; // ✅ ADD THIS LINE
+import 'package:frontend/widgets/audit_trail_tab.dart';
 import 'package:frontend/providers/crew_provider.dart';
 
 enum _DashboardTab { batchesPool, crew, qcReview, auditTrail }
@@ -775,7 +776,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       case _DashboardTab.qcReview:
         return _buildPlaceholderTab('QC review is coming soon.');
       case _DashboardTab.auditTrail:
-        return _buildPlaceholderTab('Audit trail is coming soon.');
+        return const AuditTrailTab();
     }
   }
 

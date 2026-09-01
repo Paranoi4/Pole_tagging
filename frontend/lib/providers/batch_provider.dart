@@ -46,7 +46,6 @@ class BatchNotifier extends StateNotifier<BatchState> {
     required int duId,
     required int workOrderId,
     required int quantity,
-    int? assignedTo,
   }) async {
     state = state.copyWith(isLoading: true, clearError: true);
 
@@ -55,7 +54,6 @@ class BatchNotifier extends StateNotifier<BatchState> {
         duId: duId,
         workOrderId: workOrderId,
         quantity: quantity,
-        assignedTo: assignedTo,
       );
       state = state.copyWith(
         isLoading: false,

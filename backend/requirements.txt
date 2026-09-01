@@ -3,10 +3,11 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 python-dotenv
+python-jose[cryptography]
 boto3
 python-multipart
-passlib
-bcrypt
+passlib==1.7.4
+bcrypt==4.0.1
 email-validator
 google-auth
 google-auth-oauthlib
